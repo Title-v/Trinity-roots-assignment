@@ -1,8 +1,8 @@
 # Trinity Roots Assignment
 
 A resource booking app for rooms and equipment, built with React, FastAPI,
-and Neon PostgreSQL. The current version includes a frontend connection check,
-a database health endpoint, and the initial booking schema.
+and Neon PostgreSQL. The current version includes account registration,
+sign-in, a database health endpoint, and the initial booking schema.
 
 ## Prerequisites
 
@@ -36,6 +36,8 @@ In the first terminal, from the project root:
 ```sh
 cd backend
 uv run alembic upgrade head
+uv run python seed_rooms.py
+uv run python seed_equipment.py
 uv run python dev.py
 ```
 
@@ -45,10 +47,15 @@ In a second terminal, from the project root:
 npm --prefix frontend run dev
 ```
 
-Open the URL printed by Vite, normally [localhost:5173](http://localhost:5173),
-and click **ตรวจสอบ Backend**. Vite forwards the request to FastAPI, which
-runs a read-only database query. FastAPI's interactive API docs are at
+Open the URL printed by Vite, normally [localhost:5173](http://localhost:5173).
+The homepage lists rooms from Neon and serves their sample images from the frontend.
+Choose **Create account**, then sign in. FastAPI's interactive API docs are at
 [localhost:8000/docs](http://localhost:8000/docs).
+
+Passwords are hashed with Argon2 and sessions use a signed HttpOnly cookie.
+Set `SESSION_SECRET` in `.env.local` to a shared random secret for deployments.
+Local runs without this setting generate a secret on startup, so restarting
+FastAPI signs existing sessions out.
 
 ## Checks
 
@@ -70,5 +77,5 @@ With both servers running and the database configured, the last command returns
 - `neon.ts` defines the Neon branch configuration.
 
 The initial migration creates `users`, `resources`, `availability_rules`, and
-`bookings`. Login, booking APIs and screens, concurrent booking protection,
+`bookings`. Booking APIs and screens, concurrent booking protection,
 image storage, and natural-language booking are planned work.

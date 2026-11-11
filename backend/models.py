@@ -25,10 +25,14 @@ class User(Base):
 
 class Resource(Base):
     __tablename__ = "resources"
+    __table_args__ = (
+        CheckConstraint("capacity > 0", name="ck_resources_capacity_positive"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(150))
     kind: Mapped[str] = mapped_column(String(50))
+    capacity: Mapped[int | None]
     image_key: Mapped[str | None] = mapped_column(String(512))
     is_active: Mapped[bool] = mapped_column(server_default="true")
 

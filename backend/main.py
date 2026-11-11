@@ -1,9 +1,18 @@
-from database import get_engine
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from auth import router as auth_router
+from availability import router as availability_router
+from database import get_engine
+from equipment import router as equipment_router
+from rooms import router as rooms_router
+
 app = FastAPI(title="Resource Booking API")
+app.include_router(auth_router)
+app.include_router(availability_router)
+app.include_router(rooms_router)
+app.include_router(equipment_router)
 
 
 @app.get("/health")
