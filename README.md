@@ -52,6 +52,11 @@ The homepage lists rooms from Neon and serves their sample images from the front
 Choose **Create account**, then sign in. FastAPI's interactive API docs are at
 [localhost:8000/docs](http://localhost:8000/docs).
 
+Select **Book now**, enter a date and group size, and choose one or more
+one-hour slots for a matching room. Availability refreshes automatically.
+Open **My bookings** to see your reservations and cancel an upcoming slot.
+PostgreSQL prevents overlapping confirmed bookings for the same resource.
+
 Passwords are hashed with Argon2 and sessions use a signed HttpOnly cookie.
 Set `SESSION_SECRET` in `.env.local` to a shared random secret for deployments.
 Local runs without this setting generate a secret on startup, so restarting
@@ -77,5 +82,5 @@ With both servers running and the database configured, the last command returns
 - `neon.ts` defines the Neon branch configuration.
 
 The initial migration creates `users`, `resources`, `availability_rules`, and
-`bookings`. Booking APIs and screens, concurrent booking protection,
-image storage, and natural-language booking are planned work.
+`bookings`. Editing bookings, equipment reservations, image
+storage, and natural-language booking are planned work.

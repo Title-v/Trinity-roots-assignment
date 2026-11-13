@@ -25,13 +25,15 @@ def business_hours():
     }
 
 
-@router.post("/business-hours/check")
-def check_business_hours(window: BookingWindow):
+def within_business_hours(window: BookingWindow) -> bool:
     start = window.starts_at.astimezone(BOOKING_TIMEZONE)
     end = window.ends_at.astimezone(BOOKING_TIMEZONE)
-    return {
-        "within_business_hours": (
-            start.date() == end.date()
-            and OPENS_AT <= start.time() < end.time() <= CLOSES_AT
-        )
-    }
+    return (
+        start.date() == end.date()
+        and OPENS_AT <= start.time() < end.time() <= CLOSES_AT
+    )
+
+
+@router.post("/business-hours/check")
+def check_business_hours(window: BookingWindow):
+    return {"within_business_hours": within_business_hours(window)}

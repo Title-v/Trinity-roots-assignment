@@ -4,6 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from auth import router as auth_router
 from availability import router as availability_router
+from bookings import router as bookings_router
 from database import get_engine
 from equipment import router as equipment_router
 from rooms import router as rooms_router
@@ -12,6 +13,7 @@ app = FastAPI(title="Resource Booking API")
 app.include_router(auth_router)
 app.include_router(availability_router)
 app.include_router(rooms_router)
+app.include_router(bookings_router)
 app.include_router(equipment_router)
 
 

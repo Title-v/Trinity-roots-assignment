@@ -1,12 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { BusinessHours } from './BusinessHours'
 import { HomePage } from './HomePage'
+import { MyBookings } from './MyBookings'
+import { RoomBooking } from './RoomBooking'
 import './App.css'
 
 type Account = { id: number; email: string }
 type Mode = 'login' | 'register'
 
 function App() {
+  const path = window.location.pathname.replace(/\/$/, '')
+  const isBookingPage = path === `${import.meta.env.BASE_URL}booking`
+  const isMyBookingsPage = path === `${import.meta.env.BASE_URL}my-bookings`
   const [showAuth, setShowAuth] = useState(false)
   const [mode, setMode] = useState<Mode>('login')
   const [account, setAccount] = useState<Account | null>(null)
@@ -92,26 +96,51 @@ function App() {
     setShowAuth(true)
   }
 
-  if (!checking && !account && !showAuth) {
-    return <HomePage onSignIn={() => openAuth('login')} onRegister={() => openAuth('register')} />
+  if (!checking && (account || (!showAuth && !isMyBookingsPage))) {
+    if (isBookingPage || isMyBookingsPage) {
+      return (
+        <div className="home-page">
+          <header className="home-header">
+            <a className="home-brand booking-home-link" href={import.meta.env.BASE_URL}>Trinity Roots</a>
+            <nav className="home-nav" aria-label="Booking navigation">
+              <a className="home-link booking-home-link" href={import.meta.env.BASE_URL}>Back to home</a>
+              {account && (isBookingPage
+                ? <a className="home-link" href={`${import.meta.env.BASE_URL}my-bookings`}>My bookings</a>
+                : <a className="home-link" href={`${import.meta.env.BASE_URL}booking`}>Book a room</a>)}
+            </nav>
+          </header>
+          <main>
+            {isMyBookingsPage ? <MyBookings /> : (
+              <RoomBooking signedIn={account !== null} onSignIn={() => openAuth('login')} />
+            )}
+          </main>
+        </div>
+      )
+    }
+    return (
+      <HomePage
+        onSignIn={() => openAuth('login')}
+        onRegister={() => openAuth('register')}
+        signedIn={account !== null}
+        onSignOut={signOut}
+        signOutPending={pending}
+        signOutError={account ? error : ''}
+      />
+    )
   }
 
   return (
     <main className={account ? 'auth-page' : 'auth-page auth-entry'}>
       <section className="auth-card" aria-labelledby="auth-title">
         {!checking && !account && (
-          <button type="button" className="auth-home-link" disabled={pending} onClick={() => setShowAuth(false)}>← Home</button>
+          isMyBookingsPage
+            ? <a className="auth-home-link" href={import.meta.env.BASE_URL}>← Home</a>
+            : <button type="button" className="auth-home-link" disabled={pending} onClick={() => setShowAuth(false)}>{isBookingPage ? '← Booking' : '← Home'}</button>
         )}
         <div className="auth-brand">Trinity Roots</div>
         <h1 id="auth-title">{checking ? 'Resource Booking' : account ? 'You’re signed in' : registering ? 'Create account' : 'Sign in'}</h1>
         {checking ? (
           <p role="status">Checking your session…</p>
-        ) : account ? (
-          <>
-            <p className="account-email">{account.email}</p>
-            <BusinessHours />
-            <button className="auth-primary" type="button" disabled={pending} onClick={signOut}>Sign out</button>
-          </>
         ) : (
           <>
             <form key={mode} onSubmit={submit} className="auth-form">
