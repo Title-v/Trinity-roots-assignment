@@ -1,3 +1,4 @@
+import { BookingAssistant } from './BookingAssistant'
 import { useEffect, useState, type FormEvent } from 'react'
 import { HomePage } from './HomePage'
 import { MyBookings } from './MyBookings'
@@ -96,27 +97,30 @@ function App() {
     setShowAuth(true)
   }
 
-  if (!checking && (account || (!showAuth && !isMyBookingsPage))) {
-    if (isBookingPage || isMyBookingsPage) {
-      return (
-        <div className="home-page">
-          <header className="home-header">
-            <a className="home-brand booking-home-link" href={import.meta.env.BASE_URL}>Trinity Roots</a>
-            <nav className="home-nav" aria-label="Booking navigation">
-              <a className="home-link booking-home-link" href={import.meta.env.BASE_URL}>Back to home</a>
-              {account && (isBookingPage
-                ? <a className="home-link" href={`${import.meta.env.BASE_URL}my-bookings`}>My bookings</a>
-                : <a className="home-link" href={`${import.meta.env.BASE_URL}booking`}>Book a room</a>)}
-            </nav>
-          </header>
-          <main>
-            {isMyBookingsPage ? <MyBookings /> : (
-              <RoomBooking signedIn={account !== null} onSignIn={() => openAuth('login')} />
-            )}
-          </main>
-        </div>
-      )
-    }
+  const showPage = !checking && (account !== null || (!showAuth && !isMyBookingsPage))
+  const bookingPage = !checking && (isBookingPage || (isMyBookingsPage && showPage)) ? (
+    <div className="home-page" hidden={!showPage}>
+      <header className="home-header">
+        <a className="home-brand booking-home-link" href={import.meta.env.BASE_URL}>Trinity Roots</a>
+        <nav className="home-nav" aria-label="Booking navigation">
+          <a className="home-link booking-home-link" href={import.meta.env.BASE_URL}>Back to home</a>
+          {account && (isBookingPage
+            ? <a className="home-link" href={`${import.meta.env.BASE_URL}my-bookings`}>My bookings</a>
+            : <a className="home-link" href={`${import.meta.env.BASE_URL}booking`}>Book a room</a>)}
+        </nav>
+      </header>
+      <main className={isBookingPage ? 'booking-layout' : undefined}>
+        {isMyBookingsPage ? <MyBookings /> : (
+          <RoomBooking signedIn={account !== null} onSignIn={() => openAuth('login')} />
+        )}
+        {isBookingPage && (
+          <BookingAssistant key={account?.id} signedIn={account !== null} onSignIn={() => openAuth('login')} />
+        )}
+      </main>
+    </div>
+  ) : null
+
+  if (showPage && !bookingPage) {
     return (
       <HomePage
         onSignIn={() => openAuth('login')}
@@ -130,56 +134,61 @@ function App() {
   }
 
   return (
-    <main className={account ? 'auth-page' : 'auth-page auth-entry'}>
-      <section className="auth-card" aria-labelledby="auth-title">
-        {!checking && !account && (
-          isMyBookingsPage
-            ? <a className="auth-home-link" href={import.meta.env.BASE_URL}>← Home</a>
-            : <button type="button" className="auth-home-link" disabled={pending} onClick={() => setShowAuth(false)}>{isBookingPage ? '← Booking' : '← Home'}</button>
-        )}
-        <div className="auth-brand">Trinity Roots</div>
-        <h1 id="auth-title">{checking ? 'Resource Booking' : account ? 'You’re signed in' : registering ? 'Create account' : 'Sign in'}</h1>
-        {checking ? (
-          <p role="status">Checking your session…</p>
-        ) : (
-          <>
-            <form key={mode} onSubmit={submit} className="auth-form">
-              <label htmlFor="email">Email</label>
-              <input id="email" name="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} required />
-              <label htmlFor="password">Password</label>
-              <input id="password" name="password" type="password" autoComplete={registering ? 'new-password' : 'current-password'} minLength={registering ? 8 : undefined} maxLength={128} aria-describedby={registering ? 'password-hint' : undefined} required />
-              {registering && (
-                <>
-                  <small id="password-hint">Use at least 8 characters.</small>
-                  <label htmlFor="confirm">Confirm password</label>
-                  <input id="confirm" name="confirm" type="password" autoComplete="new-password" maxLength={128} required />
-                </>
-              )}
-              <button className="auth-primary" disabled={pending}>{pending ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}</button>
-            </form>
-            <p className="auth-switch">
-              {registering ? 'Already have an account?' : 'New to Trinity Roots?'}{' '}
-              <button type="button" disabled={pending} onClick={() => {
-                setMode(registering ? 'login' : 'register')
-                setError('')
-                setNotice('')
-              }}>{registering ? 'Sign in' : 'Create account'}</button>
-            </p>
-          </>
-        )}
-        {notice && <p className="auth-feedback" role="status">{notice}</p>}
-        {error && <p className="auth-feedback auth-error" role="alert">{error}</p>}
-      </section>
-      {!checking && !account && (
-        <img
-          className="auth-photo"
-          src={`${import.meta.env.BASE_URL}meeting-room.webp`}
-          alt=""
-          width="1200"
-          height="900"
-        />
+    <>
+      {bookingPage}
+      {!showPage && (
+        <main className={account ? 'auth-page' : 'auth-page auth-entry'}>
+          <section className="auth-card" aria-labelledby="auth-title">
+            {!checking && !account && (
+              isMyBookingsPage
+                ? <a className="auth-home-link" href={import.meta.env.BASE_URL}>← Home</a>
+                : <button type="button" className="auth-home-link" disabled={pending} onClick={() => setShowAuth(false)}>{isBookingPage ? '← Booking' : '← Home'}</button>
+            )}
+            <div className="auth-brand">Trinity Roots</div>
+            <h1 id="auth-title">{checking ? 'Resource Booking' : account ? 'You’re signed in' : registering ? 'Create account' : 'Sign in'}</h1>
+            {checking ? (
+              <p role="status">Checking your session…</p>
+            ) : (
+              <>
+                <form key={mode} onSubmit={submit} className="auth-form">
+                  <label htmlFor="email">Email</label>
+                  <input id="email" name="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} required />
+                  <label htmlFor="password">Password</label>
+                  <input id="password" name="password" type="password" autoComplete={registering ? 'new-password' : 'current-password'} minLength={registering ? 8 : undefined} maxLength={128} aria-describedby={registering ? 'password-hint' : undefined} required />
+                  {registering && (
+                    <>
+                      <small id="password-hint">Use at least 8 characters.</small>
+                      <label htmlFor="confirm">Confirm password</label>
+                      <input id="confirm" name="confirm" type="password" autoComplete="new-password" maxLength={128} required />
+                    </>
+                  )}
+                  <button className="auth-primary" disabled={pending}>{pending ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}</button>
+                </form>
+                <p className="auth-switch">
+                  {registering ? 'Already have an account?' : 'New to Trinity Roots?'}{' '}
+                  <button type="button" disabled={pending} onClick={() => {
+                    setMode(registering ? 'login' : 'register')
+                    setError('')
+                    setNotice('')
+                  }}>{registering ? 'Sign in' : 'Create account'}</button>
+                </p>
+              </>
+            )}
+            {notice && <p className="auth-feedback" role="status">{notice}</p>}
+            {error && <p className="auth-feedback auth-error" role="alert">{error}</p>}
+          </section>
+          {!checking && !account && (
+            <img
+              className="auth-photo"
+              src={`${import.meta.env.BASE_URL}meeting-room.webp`}
+              alt=""
+              width="1200"
+              height="900"
+            />
+          )}
+        </main>
       )}
-    </main>
+    </>
   )
 }
 

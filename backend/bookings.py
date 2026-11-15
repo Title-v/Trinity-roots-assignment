@@ -221,13 +221,7 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
 @router.post("/bookings/{booking_id}/cancel", status_code=204)
 def cancel_booking(booking_id: PositiveInt, account: CurrentAccount) -> Response:
     with Session(get_engine()) as session, session.begin():
-        booking = session.scalar(
-            select(Booking)
-            .where(Booking.id == booking_id, Booking.user_id == account.id)
-            .with_for_update()
-        )
-        if booking is None:
-            raise HTTPException(404, "Booking not found.")
+        booking = lock_owned_booking(session, booking_id, account)
         if booking.status == "cancelled":
             return Response(status_code=204)
         if booking.status != "confirmed" or booking.starts_at <= datetime.now(UTC):
@@ -235,4 +229,43 @@ def cancel_booking(booking_id: PositiveInt, account: CurrentAccount) -> Response
                 409, "Only bookings that have not started can be cancelled."
             )
         booking.status = "cancelled"
+    return Response(status_code=204)
+
+
+def lock_owned_booking(session: Session, booking_id: int, account: Account) -> Booking:
+    booking = session.scalar(
+        select(Booking)
+        .where(Booking.id == booking_id, Booking.user_id == account.id)
+        .with_for_update()
+    )
+    if booking is None:
+        raise HTTPException(404, "Booking not found.")
+    return booking
+
+
+@router.patch("/bookings/{booking_id}", status_code=204)
+def reschedule_booking(
+    booking_id: PositiveInt, window: BookingWindow, account: CurrentAccount
+) -> Response:
+    try:
+        with Session(get_engine()) as session, session.begin():
+            booking = lock_owned_booking(session, booking_id, account)
+            if booking.status != "confirmed" or booking.starts_at <= datetime.now(UTC):
+                raise HTTPException(
+                    409, "Only confirmed bookings that have not started can be edited."
+                )
+            validate_window(window)
+            resource = session.get(Resource, booking.resource_id)
+            if resource is None or resource.kind != "room" or not resource.is_active:
+                raise HTTPException(
+                    409, "This room is no longer available for booking."
+                )
+            booking.starts_at = window.starts_at
+            booking.ends_at = window.ends_at
+    except IntegrityError as error:
+        if getattr(error.orig, "sqlstate", None) == "23P01":
+            raise HTTPException(
+                409, "That time is already booked. Choose another time."
+            ) from None
+        raise
     return Response(status_code=204)

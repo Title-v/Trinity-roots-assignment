@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 
 type Booking = {
   id: number
@@ -15,6 +16,11 @@ const dateFormat = new Intl.DateTimeFormat('en-GB', {
 const timeFormat = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
 })
+const inputDateFormat = new Intl.DateTimeFormat('sv-SE', {
+  year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Bangkok',
+})
+const bookingHours = Array.from({ length: 10 }, (_, index) => index + 8)
+const formatHour = (hour: number) => `${String(hour).padStart(2, '0')}:00`
 
 export function MyBookings() {
   const [bookings, setBookings] = useState<Booking[] | null>(null)
@@ -24,6 +30,8 @@ export function MyBookings() {
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
   const [cancelError, setCancelError] = useState('')
+  const [edit, setEdit] = useState<{ id: number; day: string; hour: number } | null>(null)
+  const [editError, setEditError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -39,6 +47,37 @@ export function MyBookings() {
     void load()
     return () => controller.abort()
   }, [reload])
+
+  async function reschedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!edit || pending) return
+    const { id, day, hour } = edit
+    const starts_at = `${day}T${formatHour(hour)}:00+07:00`
+    const ends_at = `${day}T${formatHour(hour + 1)}:00+07:00`
+    setPending(true)
+    setEditError('')
+    setMessage('')
+    try {
+      const response = await fetch(`/api/bookings/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ starts_at, ends_at }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => null)
+        throw new Error(typeof body?.detail === 'string' ? body.detail : 'Could not save changes.')
+      }
+      setBookings((current) => current?.map((booking) =>
+        booking.id === id ? { ...booking, starts_at, ends_at } : booking,
+      ).sort((a, b) => Date.parse(b.starts_at) - Date.parse(a.starts_at) || b.id - a.id) ?? null)
+      setEdit(null)
+      setMessage('Booking updated.')
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Could not save changes.')
+    } finally {
+      setPending(false)
+    }
+  }
 
   async function cancel(id: number) {
     if (pending) return
@@ -101,13 +140,54 @@ export function MyBookings() {
                       </button>
                       {cancelError && <p role="alert">{cancelError}</p>}
                     </div>
-                  ) : booking.can_cancel && (
-                    <button className="booking-cancel" type="button" disabled={pending} onClick={() => {
-                      setCancelError('')
-                      setSelected(booking.id)
-                    }}>Cancel booking</button>
+                  ) : booking.can_cancel && edit?.id !== booking.id && (
+                    <>
+                      <button className="booking-edit" type="button" disabled={pending} onClick={() => {
+                        const start = new Date(booking.starts_at)
+                        setSelected(null)
+                        setEditError('')
+                        setMessage('')
+                        setEdit({
+                          id: booking.id,
+                          day: inputDateFormat.format(start),
+                          hour: Number(timeFormat.format(start).split(':')[0]),
+                        })
+                      }}>Edit booking</button>
+                      <button className="booking-cancel" type="button" disabled={pending} onClick={() => {
+                        setEdit(null)
+                        setCancelError('')
+                        setSelected(booking.id)
+                      }}>Cancel booking</button>
+                    </>
                   )}
                 </div>
+                {edit?.id === booking.id && (
+                  <form className="booking-edit-form" onSubmit={(event) => void reschedule(event)}>
+                    <label>
+                      New date
+                      <input type="date" required min={inputDateFormat.format(new Date())}
+                        value={edit.day} disabled={pending}
+                        onChange={(event) => setEdit({ ...edit, day: event.target.value })} />
+                    </label>
+                    <label>
+                      New time (Bangkok)
+                      <select value={edit.hour} disabled={pending}
+                        onChange={(event) => setEdit({ ...edit, hour: Number(event.target.value) })}>
+                        {bookingHours.map((hour) => (
+                          <option key={hour} value={hour}>{formatHour(hour)}–{formatHour(hour + 1)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="my-booking-actions">
+                      <button className="booking-edit" type="submit" disabled={pending}>
+                        {pending ? 'Saving…' : 'Save changes'}
+                      </button>
+                      <button className="home-link" type="button" disabled={pending}
+                        onClick={() => setEdit(null)}>Discard changes</button>
+                    </div>
+                    {editError && <p className="booking-edit-error" role="alert">{editError}</p>}
+                  </form>
+                )}
               </li>
             ))}
           </ul>

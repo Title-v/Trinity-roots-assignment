@@ -515,6 +515,53 @@
   max-width: 100%;
 }
 
+.booking-edit {
+  padding: 8px 12px;
+  border: 1px solid #153825;
+  border-radius: 4px;
+  background: #153825;
+  color: #fffdf8;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.booking-edit:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.booking-edit-form {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px 16px;
+  padding-top: 16px;
+  border-top: 1px solid #d7ddd2;
+}
+
+.booking-edit-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.booking-edit-form :is(input, select) {
+  padding: 8px 12px;
+  border: 1px solid #a3b0a4;
+  border-radius: 4px;
+  background: #fffdf8;
+  color: inherit;
+  color-scheme: light;
+  font: inherit;
+}
+
+.my-booking-card .booking-edit-error {
+  flex-basis: 100%;
+  color: #842f25;
+}
+
 .my-bookings-empty,
 .my-bookings-notice {
   margin-top: 20px;
