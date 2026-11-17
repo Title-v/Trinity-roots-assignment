@@ -160,7 +160,7 @@ The unique pair `(booking_id, resource_id)` prevents duplicate equipment links. 
 
 ### Normal booking through the form
 
-This shows a successful booking. Equipment is optional, and no model call is needed.
+This diagram shows a successful booking. Browsing rooms does not require sign-in, but confirmation does. Equipment is optional, and no model call is needed. If a room or equipment conflict occurs during the transaction, the backend rolls back all changes and returns 409. The normal form shows the error and refreshes availability so the user can change the selection.
 
 ```mermaid
 sequenceDiagram
@@ -180,28 +180,35 @@ sequenceDiagram
     PostgreSQL-->>FastAPI: Current reservations
     FastAPI-->>React: Available, booked and past hourly slots
     Note over React,FastAPI: Availability refreshes about every five seconds
-    User->>React: Select room, hourly slots and optional equipment
+    User->>React: Select a room and hourly slots
     React->>FastAPI: POST /equipment/availability with slots
     FastAPI->>PostgreSQL: Find equipment free for all selected slots
     PostgreSQL-->>FastAPI: Available units
     FastAPI-->>React: Available counts by equipment type
-    User->>React: Confirm booking after signing in
-    React->>FastAPI: POST /bookings/batch
-    FastAPI->>FastAPI: Validate session, slots, room and capacity
-    FastAPI->>PostgreSQL: Begin transaction and insert confirmed room booking
+    User->>React: Choose optional equipment and confirm after signing in
+    React->>FastAPI: POST /bookings/batch with session cookie
+    FastAPI->>FastAPI: Authenticate and validate hourly slots
+    FastAPI->>PostgreSQL: Begin transaction and read selected room
+    PostgreSQL-->>FastAPI: Room type, active status and capacity
+    FastAPI->>FastAPI: Validate room and group size
+    FastAPI->>PostgreSQL: Insert confirmed room booking with selected ranges
     opt Equipment requested
-        FastAPI->>PostgreSQL: Lock inventory and reserve available units
+        FastAPI->>PostgreSQL: Lock inventory and read available units
+        PostgreSQL-->>FastAPI: Units free for the entire booking
+        FastAPI->>FastAPI: Choose one unit per requested category
+        FastAPI->>PostgreSQL: Insert equipment reservations with the same ranges
     end
-    Note over FastAPI,PostgreSQL: Exclusion constraints reject overlapping confirmed reservations
-    FastAPI->>PostgreSQL: Commit room and equipment together
+    Note over FastAPI,PostgreSQL: Constraints reject overlapping confirmed room or equipment ranges
+    FastAPI->>PostgreSQL: Commit the complete transaction
     PostgreSQL-->>FastAPI: Commit succeeds
     FastAPI-->>React: 201 Created with booking ID
-    React-->>User: Show confirmation and refresh availability
+    React-->>User: Show confirmation
+    React->>FastAPI: Refresh room availability
 ```
 
 ### Booking through the AI assistant
 
-The model returns a tool call. FastAPI validates its arguments and runs the corresponding Python function. A proposal does not reserve anything; the user's confirmation uses the same API as the normal form.
+Chat requires sign-in. The model returns a tool call, and FastAPI validates its arguments before running the corresponding Python function. A clarification waits for another user message. A complete request either produces room proposals or asks about alternative preferences. Only a selected proposal with explicit confirmation reaches the booking API.
 
 ```mermaid
 sequenceDiagram
@@ -211,42 +218,55 @@ sequenceDiagram
     participant OpenAI
     participant PostgreSQL
 
-    User->>React: Enter a Thai or English booking request
-    React->>FastAPI: POST /assistant/chat with recent messages
-    FastAPI->>FastAPI: Authenticate, check rate limit and mask sensitive text
-    FastAPI->>OpenAI: Send masked context and allowed tool schemas
-    OpenAI-->>FastAPI: Return tool name and structured arguments
-    Note over FastAPI,OpenAI: Audit logs capture the exact model request and response bodies
-    FastAPI->>FastAPI: Validate arguments with Pydantic
-    alt Required booking details are missing
-        FastAPI-->>React: Ask for date, people, start/end time or equipment preference
-        React-->>User: Show clarification and wait for another message
-    else Booking details are complete
-        FastAPI->>PostgreSQL: Read room and equipment availability
-        PostgreSQL-->>FastAPI: Current room and equipment data
-        FastAPI-->>React: Return matching room proposals, or ask about alternatives
-        React-->>User: Show room photos, capacities, slots and equipment
+    loop Each chat turn
+        User->>React: Enter request or answer a clarification
+        React->>FastAPI: POST /assistant/chat with recent messages
+        FastAPI->>FastAPI: Authenticate, check rate limit and mask sensitive text
+        FastAPI->>OpenAI: Send masked context and allowed tool schemas
+        OpenAI-->>FastAPI: Return tool name and structured arguments
+        Note over FastAPI,OpenAI: Audit logs capture exact model request and response bodies
+        FastAPI->>FastAPI: Validate arguments and dispatch the selected tool
+        alt Booking details are missing
+            FastAPI-->>React: Return a fixed clarification
+            React-->>User: Ask for the missing date, people, times or equipment preference
+        else Booking details are complete
+            FastAPI->>PostgreSQL: Read room availability and requested equipment stock
+            PostgreSQL-->>FastAPI: Current room and equipment data
+            FastAPI->>FastAPI: Check the complete requested period
+            alt Matching rooms are available
+                FastAPI-->>React: Return room proposals without reserving them
+                React-->>User: Show photos, capacities, slots and equipment
+            else No matching room or required equipment
+                FastAPI-->>React: Return a preference question and original booking details
+                React-->>User: Ask same time, same room, or either
+                Note over React,FastAPI: Use the alternatives flow shown in the next diagram
+            end
+        end
     end
-    Note over User,React: Continue only after proposals are available and a room is selected
-    User->>React: Review details and confirm booking
-    React->>FastAPI: POST /bookings/batch with selected proposal
-    FastAPI->>FastAPI: Validate session and booking rules again
-    FastAPI->>PostgreSQL: Save room and equipment atomically under conflict constraints
-    alt Transaction succeeds
-        PostgreSQL-->>FastAPI: Commit succeeds
-        FastAPI-->>React: 201 Created with booking ID
-        React-->>User: Show booking confirmation
-    else Room or equipment is no longer available
-        PostgreSQL-->>FastAPI: Conflict or no available equipment unit
-        FastAPI->>PostgreSQL: Roll back transaction
-        FastAPI-->>React: 409 Conflict
-        React-->>User: Ask whether to keep the same time or room
+    opt A proposal is available and the user chooses to confirm
+        User->>React: Select a room and confirm the reviewed details
+        React->>FastAPI: POST /bookings/batch with selected proposal
+        FastAPI->>FastAPI: Authenticate and validate booking rules again
+        Note over FastAPI,PostgreSQL: Use the same atomic room and equipment transaction as the form
+        FastAPI->>PostgreSQL: Attempt room and equipment reservation
+        alt Room and equipment can be saved
+            FastAPI->>PostgreSQL: Commit transaction
+            PostgreSQL-->>FastAPI: Commit succeeds
+            FastAPI-->>React: 201 Created with booking ID
+            React-->>User: Show booking confirmation
+        else Room overlap or equipment unavailable
+            FastAPI->>PostgreSQL: Roll back transaction
+            FastAPI-->>React: 409 Conflict
+            React-->>User: Ask same time, same room, or either before finding alternatives
+        end
     end
 ```
 
+The booking transaction is expanded in the normal-form diagram. Room overlaps are rejected by PostgreSQL. Equipment shortages can also be detected by the backend after reading available units. Both produce a rollback and 409, rather than leaving a partial booking. Model failures or invalid model arguments stop the proposal flow with an error. They do not create a reservation, and the normal form remains available.
+
 ### Someone else books before confirmation
 
-A room can be available when proposed and taken before confirmation. This example shows a room conflict; equipment conflicts also roll back the whole booking and follow the same preference flow in chat.
+This example starts with User A reviewing a proposal. User B confirms an overlapping room booking first. User B's UI is omitted to keep the diagram readable. The database rejects User A's reservation, and React asks for a preference before calling the alternatives endpoint. No model call is needed just to show that question.
 
 ```mermaid
 sequenceDiagram
@@ -258,46 +278,60 @@ sequenceDiagram
     participant PostgreSQL
 
     Note over UserA,React: User A is reviewing an available room proposal
-    UserB->>FastAPI: Confirm the same room and overlapping time
-    FastAPI->>PostgreSQL: Save and commit User B's booking
+    UserB->>FastAPI: POST /bookings/batch for the same room and time
+    FastAPI->>FastAPI: Authenticate User B and validate booking rules
+    FastAPI->>PostgreSQL: Save and commit User B booking
     PostgreSQL-->>FastAPI: Commit succeeds
     FastAPI-->>UserB: 201 Created
     UserA->>React: Confirm the earlier proposal
     React->>FastAPI: POST /bookings/batch
-    FastAPI->>PostgreSQL: Attempt overlapping room reservation
+    FastAPI->>FastAPI: Authenticate and validate booking rules
+    FastAPI->>PostgreSQL: Begin transaction and attempt overlapping room insert
     PostgreSQL-->>FastAPI: Exclusion violation, SQLSTATE 23P01
-    FastAPI->>PostgreSQL: Roll back User A's transaction
+    FastAPI->>PostgreSQL: Roll back User A transaction
     FastAPI-->>React: 409 Conflict
     React-->>UserA: Booking failed - same time, same room, or either?
     UserA->>React: Choose a preference
     React->>FastAPI: POST /assistant/alternatives with failed details and preference
-    FastAPI->>FastAPI: Authenticate and check rate limit
+    FastAPI->>FastAPI: Authenticate, check rate limit and validate input
     FastAPI->>PostgreSQL: Read room and equipment availability
     PostgreSQL-->>FastAPI: Current availability
-    FastAPI->>FastAPI: Apply preference and build up to 12 candidates
+    FastAPI->>FastAPI: Apply preference and build up to 12 valid candidates
     alt Candidates exist
-        FastAPI->>OpenAI: Send masked context, preference and candidate IDs
+        FastAPI->>OpenAI: Send masked context, preference and candidate details
         OpenAI-->>FastAPI: Select up to 3 known candidate IDs
-        FastAPI->>FastAPI: Validate selected IDs
+        FastAPI->>FastAPI: Validate IDs and remove duplicates
         FastAPI->>PostgreSQL: Reload availability for selected candidates
         PostgreSQL-->>FastAPI: Latest room and equipment data
         FastAPI->>FastAPI: Recheck preference and rules, drop stale candidates
-        FastAPI-->>React: Return verified alternatives, or none if all became stale
+        FastAPI-->>React: Return verified alternatives or an empty result
     else No candidates match the preference
-        FastAPI-->>React: No verified alternatives
+        FastAPI-->>React: No verified alternatives, without calling the model
     end
     alt Verified alternatives are available
         React-->>UserA: Show checked room and time options
-        UserA->>React: Select an option and confirm again
-        React->>FastAPI: POST /bookings/batch
-        FastAPI->>PostgreSQL: Attempt atomic booking under the same constraints
-        Note over React,PostgreSQL: Success creates the booking. Another conflict asks for preference again.
+        opt User chooses to confirm an alternative
+            UserA->>React: Select an option and confirm again
+            React->>FastAPI: POST /bookings/batch
+            FastAPI->>FastAPI: Authenticate and validate booking rules again
+            FastAPI->>PostgreSQL: Attempt atomic booking under the same constraints
+            alt Reservation succeeds
+                FastAPI->>PostgreSQL: Commit transaction
+                PostgreSQL-->>FastAPI: Commit succeeds
+                FastAPI-->>React: 201 Created with booking ID
+                React-->>UserA: Show booking confirmation
+            else Another room or equipment conflict
+                FastAPI->>PostgreSQL: Roll back transaction
+                FastAPI-->>React: 409 Conflict
+                React-->>UserA: Ask for a preference again
+            end
+        end
     else No verified alternatives remain
         React-->>UserA: Choose another preference or start a new search
     end
 ```
 
-The database, not the model, decides whether a reservation can be saved. The final availability check does not hold a room or equipment unit. Model errors and failed alternative lookups show a retry option; users can still use the normal booking form.
+Selected alternatives still require a separate user confirmation. The final availability check does not hold a room or equipment unit. If the model call fails or returns invalid IDs, the endpoint returns an error instead of showing unverified options. The UI offers a retry, and the normal booking form remains available. If options are shown but the user does not confirm, no booking is written.
 
 ## Design decisions and trade-offs
 
