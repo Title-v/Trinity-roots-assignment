@@ -154,6 +154,7 @@ A successful response is `{"status":"ok","database":"connected"}`. This checks c
 | `frontend/src/` | React pages, booking forms, and the assistant panel |
 | `backend/bookings.py` | Availability, creation, rescheduling, and cancellation |
 | `backend/assistant.py` | Model calls, tools, and chat rate limits |
+| `backend/booking_alternatives.py` | Build alternative bookings, ask the model to select them, and recheck availability |
 | `backend/assistant_privacy.py` | Masking and request/response logs |
 | `backend/auth.py` | Registration, login, and account checks |
 | `backend/models.py` and `backend/migrations/` | Database models and schema history |
@@ -172,10 +173,43 @@ The time-range migration backfills existing bookings with their original periods
 - Chat history lives in the browser page, and recent user messages provide follow-up context. Reloading the page clears the conversation.
 - The exercise still needs automated tests that run without an LLM key. Conflict suggestions are implemented as the additional feature.
 
-### Conflict suggestions
+## Conflict suggestions
 
-When a requested room or equipment is unavailable, chat first asks whether to keep the same time, keep the same room, or allow either. The user can choose a button or answer “same time”, “same room”, or “either” (also supported in Thai). Keeping the same room requires a named or selected room. The backend filters by this explicit preference and prepares up to 12 alternatives. The model receives the selected preference and recent masked user messages, then selects up to three candidate IDs. Explicit room/time preferences are hard constraints and are checked again before display. The backend checks each selected option again against current room availability, capacity, business hours and equipment stock before showing it. Unknown IDs are rejected; model-written booking details are never trusted.
+This feature helps when a requested room or equipment is unavailable, including when someone else books it while you are reviewing a chat proposal. It applies to new chat bookings. A conflicting edit keeps the original reservation and requires a new selection.
 
-If another person books first while you are reviewing a chat proposal, confirmation returns 409 and the chat asks for the preference again before requesting alternatives through `POST /assistant/alternatives`. You must select and confirm a new option. A failed lookup offers a retry; the normal booking form remains available. These suggestions apply to new chat bookings; conflicting edits retain the existing booking and require a new selection.
+### What the user sees
 
-**Trade-offs:** alternatives stay on the same day and keep the group size, equipment and number of hours. Multiple slots move together, preserving gaps. The bounded candidate list keeps model cost and latency down but may omit other useful options. A second model call adds waiting time. Checks do not reserve an option: another user can still take it before confirmation, so database constraints remain the final protection. No available candidate means asking the user to change the date or requirements, rather than inventing availability. Ranking requests and responses use the same masking and audit logging as chat.
+For example, you request **Oak Room, 14:00–16:00, for 5 people**. Someone else confirms that room before you do. Your confirmation returns **409 Conflict**, so your booking is not created. The chat keeps your requested details and asks what you want to keep:
+
+| Choice | What may change | What stays fixed |
+| --- | --- | --- |
+| **Same time** | The room | Every selected time slot |
+| **Same room** | The time | The selected room |
+| **Either** | The room and time | The date, group size, equipment, and total duration |
+
+The date, group size, equipment, and total duration stay fixed for all three choices. “Same room” is available only when a room has been named or selected.
+
+You can press a button or give a short answer such as “same time”, “same room”, or “either”, also supported in Thai. Ambiguous answers ask you to use the buttons. To change the date or other requirements, choose **New search**.
+
+If you choose **Same time**, the chat might offer Lotus Room from 14:00–16:00. If you choose **Same room**, it might offer Oak Room from 12:00–14:00 or 16:00–18:00. These are examples, not guaranteed availability.
+
+Each option shows a room photo, capacity, date, and time. You must select an option and press **Confirm booking** again. Choosing a preference does not create a booking.
+
+### How it works
+
+1. **Ask before finding alternatives.** The chat waits for your preference. After a failed confirmation, it asks again instead of silently changing the room or time. The preference is sent to the authenticated, rate-limited `POST /assistant/alternatives` endpoint with the original booking details and recent user messages.
+2. **Build valid candidates.** `find_booking_alternatives()` reads room availability from PostgreSQL. It checks active rooms, capacity, future time slots within 08:00–18:00 Bangkok time, and equipment available for the entire booking. It excludes the failed room-and-time combination. If time changes are allowed, it shifts the selected slots together in one-hour steps on the same date, preserving duration and any gaps.
+3. **Apply the preference and limit the list.** “Same time” removes other times; “Same room” removes other rooms. The backend orders the remaining options by unchanged time, distance from the original time, original room, and capacity preference. It passes at most 12 candidates to the model, each with a local ID such as `choice_1`.
+4. **Let the model select suggestions.** `suggest_booking_alternatives()` sends the explicit preference, recent masked user messages, and candidate details to the model. The model selects up to three IDs through a structured tool call. It uses the conversation to choose useful options within the allowed list; it cannot invent room IDs or time slots. The backend validates the returned IDs and removes duplicates.
+5. **Check again before display.** `verify_booking_alternatives()` reloads availability and checks each selected option against the preference, room capacity, business hours, future times, and equipment stock. An option taken while the model was responding is dropped. Only verified options reach the user.
+6. **Check again when confirming.** The existing booking API creates the reservation. PostgreSQL exclusion constraints remain the final protection against overlapping requests. If someone takes the new option first, confirmation fails and the chat asks for your preference again.
+
+The backend decides what is possible. The model selects which valid options to recommend using the user's preference and conversation context. The model does not write bookings to the database. Ranking requests and responses use the same masking and audit logging as other assistant calls.
+
+### Trade-offs and limits
+
+- **Preferences are strict.** If no room is free at the requested time, choosing “Same time” returns no alternatives. The system does not silently offer a different time. You can choose another preference or start a new search.
+- **The search stays on the same day.** It preserves equipment and total duration, so it may find nothing even when a shorter booking, different equipment, or another day would work.
+- **The candidate list is bounded.** Sending at most 12 options keeps the model request smaller, but can omit useful options. The model chooses only from this shortlist, and its ranking may vary between calls.
+- **The model adds latency and a dependency.** Backend rules could choose three options directly. Here the model uses conversation context to select recommendations, as required by the exercise. If the lookup fails, the UI offers a retry and the normal booking form remains available.
+- **A suggestion is not a reservation.** Availability can change after the final check. Only successful confirmation reserves the room and equipment. If all selected suggestions become unavailable before display, the UI reports no verified alternatives instead of showing stale options.
