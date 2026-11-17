@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { EquipmentPicker, type EquipmentItem, type EquipmentType } from './EquipmentPicker'
 
-type Booking = {
+export type Booking = {
   id: number
   room_name: string
+  image_key?: string | null
   starts_at: string
   ends_at: string
   slots: { starts_at: string; ends_at: string }[]

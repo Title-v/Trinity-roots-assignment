@@ -241,6 +241,7 @@ def booking_slots(booking: Booking) -> list[BookingWindow]:
 class MyBooking(BookingWindow):
     id: int
     room_name: str
+    image_key: str | None
     status: str
     can_cancel: bool
     slots: list[BookingWindow]
@@ -270,7 +271,7 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
                 )
             )
         rows = session.execute(
-            select(Booking, Resource.name)
+            select(Booking, Resource.name, Resource.image_key)
             .join(Resource)
             .where(Booking.user_id == account.id)
             .order_by(Booking.starts_at.desc(), Booking.id.desc())
@@ -279,6 +280,7 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
             MyBooking(
                 id=booking.id,
                 room_name=name,
+                image_key=image_key,
                 starts_at=booking.starts_at,
                 ends_at=booking.ends_at,
                 status=booking.status,
@@ -286,7 +288,7 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
                 slots=booking_slots(booking),
                 equipment=equipment_by_booking.get(booking.id, []),
             )
-            for booking, name in rows
+            for booking, name, image_key in rows
         ]
 
 
