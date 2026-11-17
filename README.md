@@ -291,7 +291,7 @@ sequenceDiagram
         UserA->>React: Select an option and confirm again
         React->>FastAPI: POST /bookings/batch
         FastAPI->>PostgreSQL: Attempt atomic booking under the same constraints
-        Note over React,PostgreSQL: Success creates the booking; another conflict asks for preference again
+        Note over React,PostgreSQL: Success creates the booking. Another conflict asks for preference again.
     else No verified alternatives remain
         React-->>UserA: Choose another preference or start a new search
     end
