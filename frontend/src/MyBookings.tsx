@@ -26,6 +26,7 @@ const inputDateFormat = new Intl.DateTimeFormat('sv-SE', {
 const bookingHours = Array.from({ length: 10 }, (_, index) => index + 8)
 const formatHour = (hour: number) => `${String(hour).padStart(2, '0')}:00`
 
+// Display the current account’s reservations and confirmation forms for edits or cancellation.
 export function MyBookings() {
   const [bookings, setBookings] = useState<Booking[] | null>(null)
   const [loadError, setLoadError] = useState(false)
@@ -58,6 +59,7 @@ export function MyBookings() {
     return () => controller.abort()
   }, [reload])
 
+  // Submit replacement slots and equipment, then reload the list after a successful update.
   async function reschedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!edit || pending || edit.hours.length === 0) return
@@ -87,6 +89,7 @@ export function MyBookings() {
     }
   }
 
+  // Request cancellation; update the visible status only after the backend confirms it.
   async function cancel(id: number) {
     if (pending) return
     setPending(true)

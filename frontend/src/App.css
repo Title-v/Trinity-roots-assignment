@@ -1,3 +1,4 @@
+/* Authentication form layout, input states, and feedback styles. */
 .auth-page {
   display: grid;
   min-height: 100svh;

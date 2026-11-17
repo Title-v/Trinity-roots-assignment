@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 type Room = { id: number; name: string; image_key: string | null; capacity: number | null }
 
+// Load the room catalog and display room photos and capacities.
 export function RoomGallery() {
   const [rooms, setRooms] = useState<Room[] | null>(null)
   const [failed, setFailed] = useState(false)

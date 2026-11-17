@@ -10,6 +10,7 @@ from models import Resource
 router = APIRouter(tags=["rooms"])
 
 
+# Describe the room fields exposed to the frontend catalog.
 class RoomSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -20,6 +21,7 @@ class RoomSummary(BaseModel):
 
 
 @router.get("/rooms")
+# Return active rooms with capacity and image references for browsing.
 def list_rooms() -> list[RoomSummary]:
     try:
         with Session(get_engine()) as session:

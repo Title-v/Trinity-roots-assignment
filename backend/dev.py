@@ -7,6 +7,7 @@ import uvicorn
 BACKEND_DIR = Path(__file__).resolve().parent
 
 
+# Start the reloadable local API; exclude installed packages from the watcher.
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

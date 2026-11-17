@@ -35,6 +35,7 @@ recognizers = [
 anonymizer = AnonymizerEngine()
 
 
+# Replace recognized personal data and secret patterns before text reaches the model.
 def mask_sensitive(text: str) -> str:
     matches = [
         match
@@ -51,6 +52,7 @@ def mask_sensitive(text: str) -> str:
 AUDIT_PATH = PROJECT_ROOT / ".assistant-audit.jsonl"
 
 
+# Append the exact model payload to a private JSONL file with a request correlation ID.
 def audit_event(request_id: str, event: str, body: str, **metadata: int) -> None:
     line = json.dumps(
         {
@@ -72,6 +74,7 @@ def audit_event(request_id: str, event: str, body: str, **metadata: int) -> None
         log.write(line + "\n")
 
 
+# Log outbound request bodies and inbound response bodies, excluding HTTP headers.
 def audited_http_client() -> DefaultHttpxClient:
     request_id = uuid4().hex
 

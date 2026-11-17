@@ -13,10 +13,12 @@ from sqlalchemy.dialects.postgresql import TSTZMULTIRANGE, ExcludeConstraint, Ra
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
+# Share SQLAlchemy metadata used by the ORM and Alembic migrations.
 class Base(DeclarativeBase):
     pass
 
 
+# Store account identities and password hashes, never plaintext passwords.
 class User(Base):
     __tablename__ = "users"
 
@@ -25,6 +27,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
 
 
+# Represent a room or an individual equipment unit in the shared catalog.
 class Resource(Base):
     __tablename__ = "resources"
     __table_args__ = (
@@ -39,6 +42,7 @@ class Resource(Base):
     is_active: Mapped[bool] = mapped_column(server_default="true")
 
 
+# Reserve schema support for per-resource schedules; current runtime uses shared hours.
 class AvailabilityRule(Base):
     __tablename__ = "availability_rules"
     __table_args__ = (
@@ -60,6 +64,7 @@ class AvailabilityRule(Base):
     closes_at: Mapped[time]
 
 
+# Store one reservation with potentially separated time ranges and a lifecycle status.
 class Booking(Base):
     __tablename__ = "bookings"
     __table_args__ = (
@@ -89,6 +94,7 @@ class Booking(Base):
     )
 
 
+# Link a physical unit to the room booking and prevent overlapping confirmed allocations.
 class BookingEquipment(Base):
     __tablename__ = "booking_equipment"
     __table_args__ = (

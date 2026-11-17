@@ -16,17 +16,20 @@ EQUIPMENT = {"Projector": 8, "Camera": 5, "Microphone": 5}
 EquipmentType = Literal["Projector", "Camera", "Microphone"]
 
 
+# Report a count for an equipment category rather than a specific physical unit.
 class EquipmentSummary(BaseModel):
     name: str
     quantity: int
 
 
+# Describe the physical equipment unit assigned to a booking.
 class EquipmentItem(BaseModel):
     id: int
     name: str
     category: EquipmentType
 
 
+# Find active units with no confirmed overlap across any requested period.
 def available_equipment(
     session: Session,
     time_ranges: list[Range[datetime]],
@@ -52,6 +55,7 @@ def available_equipment(
     )
 
 
+# Count units that remain available throughout all selected room slots.
 def equipment_availability(
     session: Session,
     time_ranges: list[Range[datetime]],
@@ -70,6 +74,7 @@ def equipment_availability(
     ]
 
 
+# Allocate equipment inside the caller transaction so room and equipment changes stay atomic.
 def reserve_equipment(
     session: Session, booking: Booking, categories: list[EquipmentType]
 ) -> None:
@@ -124,6 +129,7 @@ def reserve_equipment(
 
 
 @router.get("/equipment")
+# Return total active inventory per category, not availability for a particular date.
 def list_equipment() -> list[EquipmentSummary]:
     category = func.split_part(Resource.name, " ", 1)
     try:

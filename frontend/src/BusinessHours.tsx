@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 
 type Hours = { opens_at: string; closes_at: string }
 
+// Display shared opening hours and offer a backend check for a proposed time window.
 export function BusinessHours() {
   const [hours, setHours] = useState<Hours | null>(null)
   const [message, setMessage] = useState('')
@@ -9,6 +10,7 @@ export function BusinessHours() {
 
   useEffect(() => {
     const controller = new AbortController()
+    // Read opening hours from the backend instead of duplicating the schedule here.
     async function loadHours() {
       try {
         const response = await fetch('/api/business-hours', { signal: controller.signal })
@@ -22,6 +24,7 @@ export function BusinessHours() {
     return () => controller.abort()
   }, [])
 
+  // Ask the backend whether the entered Bangkok-time window falls within opening hours.
   async function checkHours(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const fields = new FormData(event.currentTarget)

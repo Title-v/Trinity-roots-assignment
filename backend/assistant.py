@@ -33,9 +33,11 @@ from models import Resource
 
 router = APIRouter(tags=["assistant"])
 logger = logging.getLogger(__name__)
+# FastAPI uses me to identify the account from the session cookie, not from model arguments.
 CurrentAccount = Annotated[Account, Depends(me)]
 
 
+# Load the API key and model name using the project environment-file settings.
 class AssistantSettings(BaseSettings):
     model_config = DatabaseSettings.model_config
 
@@ -43,15 +45,18 @@ class AssistantSettings(BaseSettings):
     openai_model: str = "gpt-6-luna"
 
 
+# Define one message with a role and content; this is not a database table.
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=2000)
 
 
+# Define the chat request, including earlier messages for short follow-up answers.
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=12)
 
 
+# Validate the types and allowed ranges of model arguments for a room search.
 class AvailabilitySearch(BaseModel):
     day: date
     people: int = Field(ge=1, le=1000)
@@ -60,6 +65,7 @@ class AvailabilitySearch(BaseModel):
     equipment: list[EquipmentType] | None = Field(default=None, max_length=3)
 
 
+# Define booking proposal criteria without saving a reservation.
 class BookingProposalRequest(BaseModel):
     day: date
     people: int = Field(ge=1, le=1000)
@@ -70,6 +76,7 @@ class BookingProposalRequest(BaseModel):
     equipment: list[EquipmentType] | None = Field(default=None, max_length=3)
 
 
+# Describe which booking to view, edit, or cancel and which details to change.
 class BookingManagementRequest(BaseModel):
     action: Literal["view", "edit", "cancel"]
     booking_id: PositiveInt | None = None
@@ -83,11 +90,13 @@ class BookingManagementRequest(BaseModel):
     remove_equipment: list[EquipmentType] = Field(default_factory=list, max_length=3)
 
 
+# Bundle the request and the user’s bookings for frontend review and confirmation.
 class BookingManagement(BaseModel):
     request: BookingManagementRequest
     bookings: list[MyBooking]
 
 
+# Define the API reply: text, room choices, or bookings for the user to select.
 class ChatReply(BaseModel):
     alternative_request: AlternativeRequest | None = None
     reply: str
@@ -98,6 +107,7 @@ class ChatReply(BaseModel):
 
 REQUEST_LIMIT = 10
 WINDOW_SECONDS = 60
+# Store request timestamps, not chat history or database account records.
 request_times: dict[int, deque[float]] = {}
 rate_lock = Lock()
 last_cleanup = 0.0
@@ -164,17 +174,22 @@ FOLLOW_UP_QUESTIONS = {
 }
 
 
+# Count requests per account in a rolling 60-second window within this process.
 def enforce_rate_limit(account_id: int) -> None:
     global last_cleanup
+    # Protect counter reads and updates from concurrent threads in this process.
     with rate_lock:
+        # Use elapsed time so system clock adjustments do not affect the rate-limit window.
         now = monotonic()
         cutoff = now - WINDOW_SECONDS
         if now - last_cleanup >= WINDOW_SECONDS:
             for key in list(request_times):
                 if request_times[key][-1] <= cutoff:
+                    # Remove only expired in-memory counters, not accounts or chat history.
                     del request_times[key]
             last_cleanup = now
         recent = request_times.setdefault(account_id, deque())
+        # Drop timestamps outside the 60-second window before checking this account’s quota.
         while recent and recent[0] <= cutoff:
             recent.popleft()
         if len(recent) >= REQUEST_LIMIT:
@@ -184,9 +199,11 @@ def enforce_rate_limit(account_id: int) -> None:
                 f"Too many messages. Try again in {retry_after} seconds.",
                 headers={"Retry-After": str(retry_after)},
             )
+        # Count the request now, even if the later model call fails.
         recent.append(now)
 
 
+# Let the model choose a clarification reason; the backend supplies a fixed reply.
 class RoomClarification(BaseModel):
     reason: Literal[
         "date",
@@ -204,6 +221,7 @@ class RoomClarification(BaseModel):
     ]
 
 
+# Ask for a preference, build candidates, let the model select, and recheck before replying.
 def alternative_reply(request: AlternativeRequest, response: Response) -> ChatReply:
     if request.preference is None:
         return ChatReply(
@@ -212,6 +230,7 @@ def alternative_reply(request: AlternativeRequest, response: Response) -> ChatRe
             else "The room or equipment is unavailable. Would you prefer the same time in another room, the same room at another time, or either? Choose below.",
             alternative_request=request,
         )
+    # Filter candidates by the preference, such as keeping the same time or room.
     candidates = find_booking_alternatives(request, response)
     verified = []
     if candidates:
@@ -229,6 +248,7 @@ def alternative_reply(request: AlternativeRequest, response: Response) -> ChatRe
             selected = suggest_booking_alternatives(
                 client, settings.openai_model, request, candidates
             )
+        # Another user may book while the model responds; reload availability before display.
         verified = verify_booking_alternatives(request, selected, response)
     thai = request.language == "th"
     if not verified:
@@ -247,6 +267,7 @@ def alternative_reply(request: AlternativeRequest, response: Response) -> ChatRe
 
 
 @router.post("/assistant/alternatives")
+# Expose alternative lookup with authentication and rate limiting, without creating bookings.
 def alternatives(
     request: AlternativeRequest, response: Response, account: CurrentAccount
 ) -> ChatReply:
@@ -268,6 +289,7 @@ def alternatives(
 
 
 @router.post("/assistant/chat")
+# Handle chat messages, call the model, validate arguments, and dispatch the selected tool.
 def chat(
     request: ChatRequest, response: Response, account: CurrentAccount
 ) -> ChatReply:
@@ -282,6 +304,7 @@ def chat(
     if request.messages[-1].role != "user":
         raise HTTPException(422, "The last message must be from the user.")
 
+    # Use the latest user message with letters so a reply like "8" does not change the language.
     thai = next(
         (
             bool(re.search(r"[ก-๙]", message.content))
@@ -517,6 +540,7 @@ def chat(
                     },
                 ],
             )
+        # A tool call contains a name and JSON arguments; the backend validates and dispatches it.
         for item in result.output:
             if item.type == "function_call" and item.name == "search_rooms":
                 search = AvailabilitySearch.model_validate_json(item.arguments)
@@ -563,6 +587,7 @@ def chat(
         ) from None
 
 
+# Prepare this account’s bookings for review; writes wait for frontend confirmation.
 def manage_my_bookings(
     request: BookingManagementRequest,
     account: Account,
@@ -577,6 +602,7 @@ def manage_my_bookings(
         and request.end_hour <= request.start_hour
     ):
         return ChatReply(reply=CLARIFICATIONS["booking_time"][0 if thai else 1])
+    # my_bookings is account-scoped, so a model-supplied ID cannot access another user’s booking.
     matches = [
         booking
         for booking in my_bookings(account, response)
@@ -620,6 +646,7 @@ def manage_my_bookings(
     )
 
 
+# Ask for missing details, then propose rooms and equipment available for the full period.
 def propose_room_booking(
     request: BookingProposalRequest, response: Response, *, thai: bool
 ) -> ChatReply:
@@ -631,6 +658,7 @@ def propose_room_booking(
         return ChatReply(reply=CLARIFICATIONS["end_time"][0 if thai else 1])
     if request.end_hour <= request.start_hour:
         return ChatReply(reply=CLARIFICATIONS["booking_time"][0 if thai else 1])
+    # None means equipment preference is unknown; [] explicitly means no equipment.
     if request.equipment is None:
         return ChatReply(reply=CLARIFICATIONS["equipment_needed"][0 if thai else 1])
     if len(request.equipment) != len(set(request.equipment)):
@@ -715,6 +743,7 @@ def propose_room_booking(
     return alternative_reply(alternative_request, response)
 
 
+# Read availability from the database and build a Thai or English result message.
 def search_rooms(search: AvailabilitySearch, response: Response, *, thai: bool) -> str:
     if search.equipment and len(search.equipment) != len(set(search.equipment)):
         return CLARIFICATIONS["equipment"][0 if thai else 1]

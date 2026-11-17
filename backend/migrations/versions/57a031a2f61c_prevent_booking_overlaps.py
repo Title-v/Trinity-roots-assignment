@@ -8,6 +8,7 @@ branch_labels = None
 depends_on = None
 
 
+# Apply this schema revision; Alembic tracks the revision order.
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
     op.execute("""
@@ -19,5 +20,6 @@ def upgrade() -> None:
     """)
 
 
+# Reverse this revision; dropping schema objects may discard their stored data.
 def downgrade() -> None:
     op.drop_constraint("bookings_no_overlap", "bookings")

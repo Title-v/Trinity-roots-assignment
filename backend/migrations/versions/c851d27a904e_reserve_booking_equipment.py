@@ -10,6 +10,7 @@ branch_labels = None
 depends_on = None
 
 
+# Apply this schema revision; Alembic tracks the revision order.
 def upgrade() -> None:
     op.create_table(
         "booking_equipment",
@@ -46,5 +47,6 @@ def upgrade() -> None:
     )
 
 
+# Reverse this revision; dropping schema objects may discard their stored data.
 def downgrade() -> None:
     op.drop_table("booking_equipment")

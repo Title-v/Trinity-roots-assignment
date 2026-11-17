@@ -8,6 +8,7 @@ import './App.css'
 type Account = { id: number; email: string }
 type Mode = 'login' | 'register'
 
+// Coordinate page selection and authentication while keeping booking state mounted during sign-in.
 function App() {
   const path = window.location.pathname.replace(/\/$/, '')
   const isBookingPage = path === `${import.meta.env.BASE_URL}booking`
@@ -24,6 +25,7 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController()
+    // Restore the account from the HttpOnly session cookie through the backend.
     async function loadAccount() {
       try {
         const response = await fetch('/api/auth/me', { signal: controller.signal })
@@ -38,6 +40,7 @@ function App() {
     return () => controller.abort()
   }, [])
 
+  // Submit registration or login; credentials are sent only to the application API.
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
@@ -75,6 +78,7 @@ function App() {
     }
   }
 
+  // Clear the server cookie before resetting the local account state.
   async function signOut() {
     setPending(true)
     setError('')
@@ -90,6 +94,7 @@ function App() {
     }
   }
 
+  // Switch the authentication form without navigating away from the current booking page.
   function openAuth(nextMode: Mode) {
     setMode(nextMode)
     setError('')

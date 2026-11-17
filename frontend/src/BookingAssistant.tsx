@@ -47,6 +47,7 @@ const bookingTime = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
 })
 
+// Merge adjacent slots for display while keeping gaps visible.
 function formatSlots(slots: Proposal['slots']) {
   const ranges: { starts_at: string; ends_at: string }[] = []
   for (const slot of [...slots].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))) {
@@ -57,6 +58,7 @@ function formatSlots(slots: Proposal['slots']) {
   return ranges.map((slot) => `${bookingTime.format(new Date(slot.starts_at))}–${bookingTime.format(new Date(slot.ends_at))}`).join(', ')
 }
 
+// Keep conversation, proposals, preference questions, and confirmation state for this chat panel.
 function AssistantContent({ signedIn, onSignIn }: Props) {
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -82,6 +84,7 @@ function AssistantContent({ signedIn, onSignIn }: Props) {
     }
   }, [messages, proposals, management])
 
+  // Send recent conversation context, or handle an explicit alternative preference first.
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const content = draft.trim()
@@ -132,6 +135,7 @@ function AssistantContent({ signedIn, onSignIn }: Props) {
     }
   }
 
+  // Request checked alternatives after the user chooses which booking details to keep.
   async function findAlternatives(failed: AlternativeRequest, answer?: string) {
     if (pending || !signedIn) return
     const next = answer ? [...messages, { role: 'user' as const, content: answer }] : messages
@@ -160,6 +164,7 @@ function AssistantContent({ signedIn, onSignIn }: Props) {
     }
   }
 
+  // Write only after confirmation; a conflict asks for a preference instead of silently rebooking.
   async function confirmBooking() {
     if (!proposal || pending || !signedIn) return
     setError('')
@@ -316,7 +321,9 @@ function AssistantContent({ signedIn, onSignIn }: Props) {
 
 type Props = { signedIn: boolean; onSignIn: () => void }
 
+// Provide a desktop sidebar and a full-screen mobile dialog for the assistant.
 export function BookingAssistant({ signedIn, onSignIn }: Props) {
+  // Close the mobile dialog before showing the authentication form.
   function signIn() {
     dialog.current?.close()
     onSignIn()

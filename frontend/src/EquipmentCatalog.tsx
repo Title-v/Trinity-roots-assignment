@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 type Equipment = { name: string; quantity: number }
 
+// Display inventory totals by category, independent of booking-time availability.
 export function EquipmentCatalog() {
   const [equipment, setEquipment] = useState<Equipment[] | null>(null)
   const [failed, setFailed] = useState(false)

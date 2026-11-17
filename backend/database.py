@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine, make_url
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+# Read database configuration without exposing connection strings in validation errors.
 class DatabaseSettings(BaseSettings):
     database_url: str
 
@@ -19,6 +20,7 @@ class DatabaseSettings(BaseSettings):
 
 
 @lru_cache(maxsize=1)
+# Reuse one SQLAlchemy engine per process; connections use Psycopg and are checked before reuse.
 def get_engine() -> Engine:
     url = make_url(DatabaseSettings().database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:

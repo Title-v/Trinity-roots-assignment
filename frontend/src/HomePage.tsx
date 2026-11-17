@@ -14,6 +14,7 @@ type HomePageProps = {
 
 type Hours = { opens_at: string; closes_at: string }
 
+// Compose the landing page, catalog sections, and navigation to booking and account actions.
 export function HomePage({
   onSignIn, onRegister, signedIn, onSignOut, signOutPending, signOutError,
 }: HomePageProps) {

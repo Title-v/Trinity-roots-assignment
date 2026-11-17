@@ -13,6 +13,7 @@ const bangkokTime = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit',
 })
 
+// Collect date and group size, then display matching rooms and their hourly slots.
 export function RoomBooking({ signedIn, onSignIn }: Props) {
   const [rooms, setRooms] = useState<Room[] | null>(null)
   const [catalogError, setCatalogError] = useState(false)
@@ -33,6 +34,7 @@ export function RoomBooking({ signedIn, onSignIn }: Props) {
     return () => controller.abort()
   }, [])
 
+  // Capture submitted search criteria so results do not change while the form is being edited.
   function findRooms(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
@@ -71,6 +73,7 @@ export function RoomBooking({ signedIn, onSignIn }: Props) {
   )
 }
 
+// Poll room availability and abort outdated requests when the search changes or unmounts.
 function RoomResults({ rooms, search, signedIn, onSignIn }: Props & { rooms: Room[]; search: Search }) {
   const [availability, setAvailability] = useState<Record<number, Slot[]> | null>(null)
   const [loadError, setLoadError] = useState(false)
@@ -133,6 +136,7 @@ function RoomResults({ rooms, search, signedIn, onSignIn }: Props & { rooms: Roo
   )
 }
 
+// Track one room’s selected hours and equipment; stale slots cannot be confirmed.
 function RoomSlots({ room, search, signedIn, onSignIn, slots, onRefresh }: Props & {
   room: Room; search: Search; slots: Slot[] | null; onRefresh: () => void
 }) {
@@ -144,6 +148,7 @@ function RoomSlots({ room, search, signedIn, onSignIn, slots, onRefresh }: Props
   const canConfirm = chosen.length > 0 && chosen.length === selected.length
   const { day, people } = search
 
+  // Save all selected hours as one booking, then refresh availability after success or failure.
   async function confirm() {
     if (!canConfirm || pending) return
     setPending(true)

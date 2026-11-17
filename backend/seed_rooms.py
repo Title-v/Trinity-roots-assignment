@@ -23,6 +23,7 @@ ROOMS = {
 if __name__ == "__main__":
     added = 0
     updated = 0
+    # Reuse catalog entries by image key so rerunning the seed does not duplicate rooms.
     with Session(get_engine()) as session, session.begin():
         existing_rooms = {
             room.image_key: room

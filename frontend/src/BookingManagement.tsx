@@ -41,12 +41,14 @@ const timeFormat = new Intl.DateTimeFormat('en-GB', {
 const hoursOfDay = Array.from({ length: 10 }, (_, index) => index + 8)
 const formatHour = (hour: number) => `${String(hour).padStart(2, '0')}:00`
 
+// Display every reserved interval so separated slots are not shown as one continuous booking.
 function timeLabel(slots: Booking['slots']) {
   return slots.map((slot) =>
     `${timeFormat.format(new Date(slot.starts_at))}–${timeFormat.format(new Date(slot.ends_at))}`,
   ).join(' · ')
 }
 
+// Let the user review a model-proposed edit or cancellation before submitting it.
 export function BookingManagement({ data, pending, onPendingChange, onComplete, onDiscard }: Props) {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [error, setError] = useState('')
@@ -56,6 +58,7 @@ export function BookingManagement({ data, pending, onPendingChange, onComplete, 
     panel.current?.scrollIntoView({ block: 'start' })
   }, [selection?.booking.id, selection?.action])
 
+  // Build an editable draft; a start-only change shifts existing slots and preserves gaps.
   function selectBooking(booking: Booking, action: Selection['action']) {
     const currentHours = booking.slots.map((slot) => Number(timeFormat.format(new Date(slot.starts_at)).split(':')[0]))
     const draft = data.request.action === 'edit' ? data.request : null
@@ -86,6 +89,7 @@ export function BookingManagement({ data, pending, onPendingChange, onComplete, 
     ends_at: `${selection.day}T${formatHour(hour + 1)}:00+07:00`,
   })) : []
 
+  // Submit the selected action through the normal booking API, which enforces ownership.
   async function confirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selection || pending || (selection.action === 'edit' && slots.length === 0)) return

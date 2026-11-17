@@ -8,6 +8,7 @@ from equipment import EQUIPMENT
 from models import Resource
 
 if __name__ == "__main__":
+    # Add only missing named units; do not reset existing inventory or reservations.
     with Session(get_engine()) as session, session.begin():
         existing = set(
             session.scalars(select(Resource.name).where(Resource.kind == "equipment"))

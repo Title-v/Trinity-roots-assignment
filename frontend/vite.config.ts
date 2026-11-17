@@ -1,3 +1,4 @@
+// Proxy local /api requests to FastAPI so the browser uses one origin during development.
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 

@@ -1,3 +1,4 @@
+// Apply TypeScript and React lint rules to source files while excluding build output.
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'

@@ -1,16 +1,17 @@
 from secrets import token_urlsafe
 from typing import Annotated
 
-from database import DatabaseSettings, get_engine
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
-from models import User
 from pwdlib import PasswordHash
 from pydantic import BaseModel, EmailStr, SecretStr
 from pydantic_settings import BaseSettings
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+from database import DatabaseSettings, get_engine
+from models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 COOKIE_NAME = "trinity_session"
@@ -19,6 +20,7 @@ password_hash = PasswordHash.recommended()
 dummy_hash = password_hash.hash(token_urlsafe(32))
 
 
+# Load the optional signing secret used to keep sessions valid across restarts.
 class AuthSettings(BaseSettings):
     session_secret: SecretStr | None = None
     model_config = DatabaseSettings.model_config
@@ -33,17 +35,20 @@ secret = (
 signer = URLSafeTimedSerializer(secret, salt="trinity-session")
 
 
+# Validate the email and wrap the password to hide it in ordinary representations.
 class Credentials(BaseModel):
     email: EmailStr
     password: SecretStr
 
 
+# Return only the account ID and email, never the stored password hash.
 class Account(BaseModel):
     id: int
     email: str
 
 
 @router.post("/register", status_code=201)
+# Hash the password and create an account; translate duplicate emails into a conflict response.
 def register(credentials: Credentials) -> Account:
     email = credentials.email.casefold()
     password = credentials.password.get_secret_value()
@@ -66,6 +71,7 @@ def register(credentials: Credentials) -> Account:
 
 
 @router.post("/login")
+# Verify the password and set a signed HttpOnly session cookie.
 def login(credentials: Credentials, request: Request, response: Response) -> Account:
     password = credentials.password.get_secret_value()
     if not 1 <= len(password) <= 128:
@@ -92,6 +98,7 @@ def login(credentials: Credentials, request: Request, response: Response) -> Acc
 
 
 @router.get("/me")
+# Resolve the signed cookie to an existing account for protected API routes.
 def me(
     session_token: Annotated[str | None, Cookie(alias=COOKIE_NAME)] = None,
 ) -> Account:
@@ -109,6 +116,7 @@ def me(
 
 
 @router.post("/logout", status_code=204)
+# Clear the browser session cookie; the account itself is retained.
 def logout(request: Request) -> Response:
     response = Response(status_code=204)
     response.delete_cookie(

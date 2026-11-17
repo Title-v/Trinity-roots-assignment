@@ -30,16 +30,19 @@ router = APIRouter(tags=["bookings"])
 CurrentAccount = Annotated[Account, Depends(me)]
 
 
+# Describe a single-slot room booking with optional equipment.
 class BookingRequest(BookingWindow):
     resource_id: PositiveInt
     party_size: PositiveInt
     equipment: list[EquipmentType] = Field(default_factory=list, max_length=3)
 
 
+# Add an availability status to a one-hour time window.
 class RoomSlot(BookingWindow):
     status: str
 
 
+# Enforce hourly slots and business hours; writes also require a future start.
 def validate_window(window: BookingWindow, *, require_future: bool = True) -> None:
     if not within_business_hours(window):
         raise HTTPException(422, "Choose a time within 08:00–18:00 Bangkok time.")
@@ -53,6 +56,7 @@ def validate_window(window: BookingWindow, *, require_future: bool = True) -> No
 
 
 @router.get("/rooms/slots")
+# Return availability for rooms that can accommodate the requested group.
 def all_room_slots(
     day: date, people: PositiveInt, response: Response
 ) -> dict[int, list[RoomSlot]]:
@@ -60,6 +64,7 @@ def all_room_slots(
 
 
 @router.get("/rooms/{room_id}/slots")
+# Return one room’s slots or report that the room is no longer listed.
 def room_slots(room_id: int, day: date, response: Response) -> list[RoomSlot]:
     result = load_room_slots(day, response, room_id=room_id)
     if room_id not in result:
@@ -67,6 +72,7 @@ def room_slots(room_id: int, day: date, response: Response) -> list[RoomSlot]:
     return result[room_id]
 
 
+# Read confirmed reservations and turn their actual ranges into hourly room availability.
 def load_room_slots(
     day: date,
     response: Response,
@@ -111,6 +117,7 @@ def load_room_slots(
     }
 
 
+# Mark each hourly slot as past, booked, or available; touching boundaries do not overlap.
 def build_slots(
     opens: datetime,
     closes: datetime,
@@ -135,11 +142,13 @@ def build_slots(
     return slots
 
 
+# Describe replacement slots; omitted equipment preserves the current selection during edits.
 class BookingSlots(BaseModel):
     slots: list[BookingWindow] = Field(min_length=1, max_length=10)
     equipment: list[EquipmentType] | None = Field(default=None, max_length=3)
 
 
+# Group selected hourly slots into one room reservation and equipment allocation.
 class BookingBatch(BookingSlots):
     resource_id: PositiveInt
     party_size: PositiveInt
@@ -147,6 +156,7 @@ class BookingBatch(BookingSlots):
 
 
 @router.post("/bookings", status_code=201)
+# Create a reservation from the single-slot API using the shared transaction helper.
 def create_booking(window: BookingRequest, account: CurrentAccount) -> dict[str, int]:
     ids = save_bookings(
         window.resource_id, window.party_size, [window], account, window.equipment
@@ -155,6 +165,7 @@ def create_booking(window: BookingRequest, account: CurrentAccount) -> dict[str,
 
 
 @router.post("/bookings/batch", status_code=201)
+# Create one reservation containing all selected slots, not one booking per hour.
 def create_booking_batch(
     request: BookingBatch, account: CurrentAccount
 ) -> dict[str, list[int]]:
@@ -169,6 +180,7 @@ def create_booking_batch(
     }
 
 
+# Validate room capacity and save the room and equipment together in one transaction.
 def save_bookings(
     resource_id: int,
     party_size: int,
@@ -211,6 +223,7 @@ def save_bookings(
     return ids
 
 
+# Reject duplicate slots and mixed dates, then return the slots in chronological order.
 def validate_slots(
     slots: list[BookingWindow], *, require_future: bool = True
 ) -> list[BookingWindow]:
@@ -223,12 +236,14 @@ def validate_slots(
     return sorted(slots, key=lambda slot: slot.starts_at)
 
 
+# Store actual selected ranges while retaining outer start and end fields for display.
 def set_booking_slots(booking: Booking, slots: list[BookingWindow]) -> None:
     booking.starts_at = slots[0].starts_at
     booking.ends_at = slots[-1].ends_at
     booking.time_ranges = [Range(slot.starts_at, slot.ends_at) for slot in slots]
 
 
+# Expand stored ranges into hourly slots without filling gaps between them.
 def booking_slots(booking: Booking) -> list[BookingWindow]:
     slots = []
     for period in booking.time_ranges:
@@ -241,6 +256,7 @@ def booking_slots(booking: Booking) -> list[BookingWindow]:
     return slots
 
 
+# Shape the owner’s booking response, including slots, equipment, and available actions.
 class MyBooking(BookingWindow):
     id: int
     room_name: str
@@ -252,6 +268,7 @@ class MyBooking(BookingWindow):
 
 
 @router.get("/bookings")
+# Fetch only the signed-in account’s bookings and their assigned equipment.
 def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
     response.headers["Cache-Control"] = "no-store"
     now = datetime.now(UTC)
@@ -296,6 +313,7 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
 
 
 @router.post("/bookings/{booking_id}/cancel", status_code=204)
+# Cancel an owned future reservation and release its room and equipment together.
 def cancel_booking(booking_id: PositiveInt, account: CurrentAccount) -> Response:
     with Session(get_engine()) as session, session.begin():
         booking = lock_owned_booking(session, booking_id, account)
@@ -315,6 +333,7 @@ def cancel_booking(booking_id: PositiveInt, account: CurrentAccount) -> Response
     return Response(status_code=204)
 
 
+# Check ownership and lock the booking row to serialize edits and cancellations.
 def lock_owned_booking(session: Session, booking_id: int, account: Account) -> Booking:
     booking = session.scalar(
         select(Booking)
@@ -327,6 +346,7 @@ def lock_owned_booking(session: Session, booking_id: int, account: Account) -> B
 
 
 @router.patch("/bookings/{booking_id}", status_code=204)
+# Replace an owned booking’s slots and equipment atomically; conflicts retain the old state.
 def reschedule_booking(
     booking_id: PositiveInt,
     window: BookingSlots | BookingWindow,
@@ -369,6 +389,7 @@ def reschedule_booking(
 
 
 @router.post("/equipment/availability", tags=["equipment"])
+# Read equipment availability for a proposed selection without reserving units.
 def check_equipment(
     request: BookingSlots, response: Response
 ) -> list[EquipmentSummary]:
@@ -381,6 +402,7 @@ def check_equipment(
 
 
 @router.post("/bookings/{booking_id}/equipment-availability")
+# Check an owner’s edit while excluding that booking’s current equipment allocation.
 def check_booking_equipment(
     booking_id: PositiveInt,
     request: BookingSlots,

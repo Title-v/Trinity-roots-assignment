@@ -9,6 +9,7 @@ from database import DatabaseSettings
 from models import Base
 
 
+# Use a direct connection for migrations rather than the application pool endpoint.
 class MigrationSettings(DatabaseSettings):
     database_url: str = Field(validation_alias="DATABASE_URL_UNPOOLED")
 

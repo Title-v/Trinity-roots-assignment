@@ -14,6 +14,7 @@ type Props = {
   bookingId?: number
 }
 
+// Poll stock for the complete slot selection; editing excludes the booking’s own allocation.
 export function EquipmentPicker({ slots, selected, onChange, disabled, bookingId }: Props) {
   const url = bookingId === undefined
     ? '/api/equipment/availability'

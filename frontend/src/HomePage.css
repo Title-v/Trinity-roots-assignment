@@ -1,3 +1,4 @@
+/* Cream-and-green page theme, catalog layouts, and responsive booking views. */
 #root:has(.home-page, .auth-entry) {
   width: 100%;
   border: 0;

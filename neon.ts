@@ -1,3 +1,4 @@
+// Configure Neon branch behavior; application login is implemented in FastAPI.
 import { defineConfig } from "@neon/config/v1";
 
 export default defineConfig({

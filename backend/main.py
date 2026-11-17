@@ -20,11 +20,13 @@ app.include_router(equipment_router)
 
 
 @app.get("/health")
+# Check that the API process responds without requiring a database connection.
 def health_check():
     return {"status": "ok"}
 
 
 @app.get("/health/db")
+# Run a small database query and return a safe error if storage is unavailable.
 def database_health_check():
     try:
         with get_engine().connect() as connection:

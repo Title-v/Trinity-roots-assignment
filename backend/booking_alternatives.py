@@ -18,6 +18,7 @@ from equipment import equipment_availability
 from models import Resource
 
 
+# Carry validated booking details plus display metadata and a selectable candidate ID.
 class BookingProposal(BookingBatch):
     candidate_id: str = Field(default_factory=lambda: uuid4().hex)
     room_name: str
@@ -26,6 +27,7 @@ class BookingProposal(BookingBatch):
     alternative_reason: Literal["same_time", "same_room", "nearby_time"] | None = None
 
 
+# Keep the failed booking details and the user preference for finding alternatives.
 class AlternativeRequest(BookingBatch):
     resource_id: PositiveInt | None = None
     room_name: str | None = Field(default=None, max_length=150)
@@ -37,10 +39,12 @@ class AlternativeRequest(BookingBatch):
     )
 
 
+# Validate the model output as a list of one to three candidate IDs.
 class AlternativeSelection(BaseModel):
     candidate_ids: list[str] = Field(min_length=1, max_length=3)
 
 
+# Build a bounded shortlist from real availability while preserving the requested constraints.
 def find_booking_alternatives(
     request: AlternativeRequest, response: Response
 ) -> list[BookingProposal]:
@@ -146,6 +150,7 @@ def find_booking_alternatives(
     return candidates
 
 
+# Ask the model to rank known candidates using the preference and masked conversation.
 def suggest_booking_alternatives(
     client: OpenAI,
     model: str,
@@ -231,6 +236,7 @@ def suggest_booking_alternatives(
     raise ValueError("The model did not select booking alternatives")
 
 
+# Recheck selected candidates against current availability before exposing them to the user.
 def verify_booking_alternatives(
     request: AlternativeRequest, candidates: list[BookingProposal], response: Response
 ) -> list[BookingProposal]:

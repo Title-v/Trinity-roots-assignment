@@ -10,6 +10,7 @@ branch_labels = None
 depends_on = None
 
 
+# Apply this schema revision; Alembic tracks the revision order.
 def upgrade() -> None:
     op.add_column(
         "bookings", sa.Column("time_ranges", postgresql.TSTZMULTIRANGE(), nullable=True)
@@ -36,6 +37,7 @@ def upgrade() -> None:
     """)
 
 
+# Reverse this revision; dropping schema objects may discard their stored data.
 def downgrade() -> None:
     op.execute("""
         DO $$ BEGIN
