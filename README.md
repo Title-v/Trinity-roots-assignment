@@ -98,6 +98,207 @@ Bookings start as `confirmed` after the user confirms. The owner can edit or can
 
 Passwords are hashed with Argon2. A signed HttpOnly cookie identifies the account on each request, and the backend checks ownership before changing a booking.
 
+## Data model and booking flows
+
+These Mermaid diagrams render directly on GitHub. API paths below are FastAPI routes; the React app calls them through Vite's `/api` proxy. Protected requests use the signed session cookie. Database reads and writes are grouped for readability.
+
+### ER diagram
+
+```mermaid
+erDiagram
+    users ||..o{ bookings : owns
+    resources ||..o{ bookings : reserves_room
+    bookings ||..o{ booking_equipment : includes
+    resources ||..o{ booking_equipment : assigns_unit
+    resources ||..o{ availability_rules : has_schedule
+
+    users {
+        int id PK
+        varchar email UK
+        varchar password_hash
+    }
+    resources {
+        int id PK
+        varchar name
+        varchar kind "room or equipment"
+        int capacity "nullable"
+        varchar image_key "nullable"
+        boolean is_active
+    }
+    bookings {
+        int id PK
+        int user_id FK
+        int resource_id FK "room"
+        timestamptz starts_at
+        timestamptz ends_at
+        tstzmultirange time_ranges
+        varchar status
+        int version
+        timestamptz created_at
+    }
+    booking_equipment {
+        int id PK
+        int booking_id FK
+        int resource_id FK "physical equipment unit"
+        tstzmultirange time_ranges
+        varchar status
+    }
+    availability_rules {
+        int id PK
+        int resource_id FK
+        int weekday "0 Monday to 6 Sunday"
+        time opens_at
+        time closes_at
+    }
+```
+
+A user can own many bookings. Each booking reserves one room and can include multiple equipment units through `booking_equipment`. Both rooms and individual equipment units live in `resources`; the backend enforces their roles. Each child row belongs to exactly one referenced parent. The dotted relationships are non-identifying: child tables have their own primary keys.
+
+`time_ranges` stores the actual occupied periods, including gaps. `starts_at` and `ends_at` store the outer boundaries. Group size is validated against capacity when creating a booking but is not stored as a booking column. The schema supports `confirmed`, `cancelled`, and `completed`; automatic completion is not implemented. `availability_rules` is reserved for future schedules; current opening hours come from `backend/availability.py`.
+
+The unique pair `(booking_id, resource_id)` prevents duplicate equipment links. PostgreSQL exclusion constraints prevent overlapping confirmed reservations for the same room or equipment unit. These constraints are described above under **How bookings stay consistent**.
+
+### Normal booking through the form
+
+This shows a successful booking. Equipment is optional, and no model call is needed.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant React
+    participant FastAPI
+    participant PostgreSQL
+
+    User->>React: Open booking page
+    React->>FastAPI: GET /rooms
+    FastAPI->>PostgreSQL: Read active room catalog
+    PostgreSQL-->>FastAPI: Rooms, capacities and image references
+    FastAPI-->>React: Room catalog
+    User->>React: Submit date and group size
+    React->>FastAPI: GET /rooms/slots with day and people
+    FastAPI->>PostgreSQL: Read rooms and confirmed booking ranges
+    PostgreSQL-->>FastAPI: Current reservations
+    FastAPI-->>React: Available, booked and past hourly slots
+    Note over React,FastAPI: Availability refreshes about every five seconds
+    User->>React: Select room, hourly slots and optional equipment
+    React->>FastAPI: POST /equipment/availability with slots
+    FastAPI->>PostgreSQL: Find equipment free for all selected slots
+    PostgreSQL-->>FastAPI: Available units
+    FastAPI-->>React: Available counts by equipment type
+    User->>React: Confirm booking after signing in
+    React->>FastAPI: POST /bookings/batch
+    FastAPI->>FastAPI: Validate session, slots, room and capacity
+    FastAPI->>PostgreSQL: Begin transaction and insert confirmed room booking
+    opt Equipment requested
+        FastAPI->>PostgreSQL: Lock inventory and reserve available units
+    end
+    Note over FastAPI,PostgreSQL: Exclusion constraints reject overlapping confirmed reservations
+    FastAPI->>PostgreSQL: Commit room and equipment together
+    PostgreSQL-->>FastAPI: Commit succeeds
+    FastAPI-->>React: 201 Created with booking ID
+    React-->>User: Show confirmation and refresh availability
+```
+
+### Booking through the AI assistant
+
+The model returns a tool call. FastAPI validates its arguments and runs the corresponding Python function. A proposal does not reserve anything; the user's confirmation uses the same API as the normal form.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant React
+    participant FastAPI
+    participant OpenAI
+    participant PostgreSQL
+
+    User->>React: Enter a Thai or English booking request
+    React->>FastAPI: POST /assistant/chat with recent messages
+    FastAPI->>FastAPI: Authenticate, check rate limit and mask sensitive text
+    FastAPI->>OpenAI: Send masked context and allowed tool schemas
+    OpenAI-->>FastAPI: Return tool name and structured arguments
+    Note over FastAPI,OpenAI: Audit logs capture the exact model request and response bodies
+    FastAPI->>FastAPI: Validate arguments with Pydantic
+    alt Required booking details are missing
+        FastAPI-->>React: Ask for date, people, start/end time or equipment preference
+        React-->>User: Show clarification and wait for another message
+    else Booking details are complete
+        FastAPI->>PostgreSQL: Read room and equipment availability
+        PostgreSQL-->>FastAPI: Current room and equipment data
+        FastAPI-->>React: Return matching room proposals, or ask about alternatives
+        React-->>User: Show room photos, capacities, slots and equipment
+    end
+    Note over User,React: Continue only after proposals are available and a room is selected
+    User->>React: Review details and confirm booking
+    React->>FastAPI: POST /bookings/batch with selected proposal
+    FastAPI->>FastAPI: Validate session and booking rules again
+    FastAPI->>PostgreSQL: Save room and equipment atomically under conflict constraints
+    alt Transaction succeeds
+        PostgreSQL-->>FastAPI: Commit succeeds
+        FastAPI-->>React: 201 Created with booking ID
+        React-->>User: Show booking confirmation
+    else Room or equipment is no longer available
+        PostgreSQL-->>FastAPI: Conflict or no available equipment unit
+        FastAPI->>PostgreSQL: Roll back transaction
+        FastAPI-->>React: 409 Conflict
+        React-->>User: Ask whether to keep the same time or room
+    end
+```
+
+### Someone else books before confirmation
+
+A room can be available when proposed and taken before confirmation. This example shows a room conflict; equipment conflicts also roll back the whole booking and follow the same preference flow in chat.
+
+```mermaid
+sequenceDiagram
+    actor UserA as User A
+    participant React
+    actor UserB as User B
+    participant FastAPI
+    participant OpenAI
+    participant PostgreSQL
+
+    Note over UserA,React: User A is reviewing an available room proposal
+    UserB->>FastAPI: Confirm the same room and overlapping time
+    FastAPI->>PostgreSQL: Save and commit User B's booking
+    PostgreSQL-->>FastAPI: Commit succeeds
+    FastAPI-->>UserB: 201 Created
+    UserA->>React: Confirm the earlier proposal
+    React->>FastAPI: POST /bookings/batch
+    FastAPI->>PostgreSQL: Attempt overlapping room reservation
+    PostgreSQL-->>FastAPI: Exclusion violation, SQLSTATE 23P01
+    FastAPI->>PostgreSQL: Roll back User A's transaction
+    FastAPI-->>React: 409 Conflict
+    React-->>UserA: Booking failed - same time, same room, or either?
+    UserA->>React: Choose a preference
+    React->>FastAPI: POST /assistant/alternatives with failed details and preference
+    FastAPI->>FastAPI: Authenticate and check rate limit
+    FastAPI->>PostgreSQL: Read room and equipment availability
+    PostgreSQL-->>FastAPI: Current availability
+    FastAPI->>FastAPI: Apply preference and build up to 12 candidates
+    alt Candidates exist
+        FastAPI->>OpenAI: Send masked context, preference and candidate IDs
+        OpenAI-->>FastAPI: Select up to 3 known candidate IDs
+        FastAPI->>FastAPI: Validate selected IDs
+        FastAPI->>PostgreSQL: Reload availability for selected candidates
+        PostgreSQL-->>FastAPI: Latest room and equipment data
+        FastAPI->>FastAPI: Recheck preference and rules, drop stale candidates
+        FastAPI-->>React: Return verified alternatives, or none if all became stale
+    else No candidates match the preference
+        FastAPI-->>React: No verified alternatives
+    end
+    alt Verified alternatives are available
+        React-->>UserA: Show checked room and time options
+        UserA->>React: Select an option and confirm again
+        React->>FastAPI: POST /bookings/batch
+        FastAPI->>PostgreSQL: Attempt atomic booking under the same constraints
+        Note over React,PostgreSQL: Success creates the booking; another conflict asks for preference again
+    else No verified alternatives remain
+        React-->>UserA: Choose another preference or start a new search
+    end
+```
+
+The database, not the model, decides whether a reservation can be saved. The final availability check does not hold a room or equipment unit. Model errors and failed alternative lookups show a retry option; users can still use the normal booking form.
+
 ## Design decisions and trade-offs
 
 | Decision | Why it works for this app | Trade-off |
