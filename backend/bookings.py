@@ -40,7 +40,7 @@ class RoomSlot(BookingWindow):
     status: str
 
 
-def validate_window(window: BookingWindow) -> None:
+def validate_window(window: BookingWindow, *, require_future: bool = True) -> None:
     if not within_business_hours(window):
         raise HTTPException(422, "Choose a time within 08:00–18:00 Bangkok time.")
     start = window.starts_at.astimezone(BOOKING_TIMEZONE)
@@ -48,7 +48,7 @@ def validate_window(window: BookingWindow) -> None:
         window.ends_at - window.starts_at != timedelta(hours=1)
     ):
         raise HTTPException(422, "Choose a one-hour slot starting on the hour.")
-    if window.starts_at <= datetime.now(UTC):
+    if require_future and window.starts_at <= datetime.now(UTC):
         raise HTTPException(422, "Choose a start time in the future.")
 
 
@@ -204,15 +204,18 @@ def save_bookings(
         if getattr(error.orig, "sqlstate", None) == "23P01":
             raise HTTPException(
                 409,
-                "The room or equipment was just booked. Please review your selection.",
+                "Booking unsuccessful. The room or equipment is no longer available "
+                "for the selected time. Please search again for another room or time.",
             ) from None
         raise
     return ids
 
 
-def validate_slots(slots: list[BookingWindow]) -> list[BookingWindow]:
+def validate_slots(
+    slots: list[BookingWindow], *, require_future: bool = True
+) -> list[BookingWindow]:
     for slot in slots:
-        validate_window(slot)
+        validate_window(slot, require_future=require_future)
     starts = {slot.starts_at for slot in slots}
     dates = {start.astimezone(BOOKING_TIMEZONE).date() for start in starts}
     if len(starts) != len(slots) or len(dates) != 1:

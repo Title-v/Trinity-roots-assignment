@@ -1,7 +1,7 @@
 import logging
 import re
 from collections import deque
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from math import ceil
 from threading import Lock
 from time import monotonic
@@ -18,8 +18,15 @@ from sqlalchemy.orm import Session
 
 from assistant_privacy import audited_http_client, mask_sensitive
 from auth import Account, me
-from availability import BOOKING_TIMEZONE
-from bookings import BookingBatch, MyBooking, load_room_slots, my_bookings
+from availability import BOOKING_TIMEZONE, BookingWindow
+from booking_alternatives import (
+    AlternativeRequest,
+    BookingProposal,
+    find_booking_alternatives,
+    suggest_booking_alternatives,
+    verify_booking_alternatives,
+)
+from bookings import MyBooking, load_room_slots, my_bookings
 from database import DatabaseSettings, get_engine
 from equipment import EQUIPMENT, EquipmentType, equipment_availability
 from models import Resource
@@ -63,12 +70,6 @@ class BookingProposalRequest(BaseModel):
     equipment: list[EquipmentType] | None = Field(default=None, max_length=3)
 
 
-class BookingProposal(BookingBatch):
-    room_name: str
-    capacity: int
-    image_key: str | None
-
-
 class BookingManagementRequest(BaseModel):
     action: Literal["view", "edit", "cancel"]
     booking_id: PositiveInt | None = None
@@ -88,6 +89,7 @@ class BookingManagement(BaseModel):
 
 
 class ChatReply(BaseModel):
+    alternative_request: AlternativeRequest | None = None
     reply: str
     proposal: BookingProposal | None = None
     proposals: list[BookingProposal] = Field(default_factory=list)
@@ -200,6 +202,69 @@ class RoomClarification(BaseModel):
         "equipment_needed",
         "equipment_type",
     ]
+
+
+def alternative_reply(request: AlternativeRequest, response: Response) -> ChatReply:
+    if request.preference is None:
+        return ChatReply(
+            reply="ห้องหรืออุปกรณ์ที่เลือกไม่ว่างแล้วครับ ต้องการเวลาเดิมแต่เปลี่ยนห้อง ห้องเดิมแต่เลื่อนเวลา หรือยืดหยุ่นได้ทั้งสองอย่างครับ? เลือกด้านล่างได้เลย"
+            if request.language == "th"
+            else "The room or equipment is unavailable. Would you prefer the same time in another room, the same room at another time, or either? Choose below.",
+            alternative_request=request,
+        )
+    candidates = find_booking_alternatives(request, response)
+    verified = []
+    if candidates:
+        settings = AssistantSettings()
+        if not settings.openai_api_key:
+            raise HTTPException(
+                503, "The assistant is not configured. Use the booking form."
+            )
+        with OpenAI(
+            api_key=settings.openai_api_key.get_secret_value(),
+            timeout=12.0,
+            max_retries=0,
+            http_client=audited_http_client(),
+        ) as client:
+            selected = suggest_booking_alternatives(
+                client, settings.openai_model, request, candidates
+            )
+        verified = verify_booking_alternatives(request, selected, response)
+    thai = request.language == "th"
+    if not verified:
+        return ChatReply(
+            reply="ไม่พบตัวเลือกอื่นที่ว่างตามความต้องการที่เลือกในวันเดียวกันครับ ลองเปลี่ยนวันหรือเงื่อนไขแล้วค้นหาใหม่"
+            if thai
+            else "No verified alternatives match your preference on the same day. Try a different date or change your requirements."
+        )
+    return ChatReply(
+        reply="ช่วงเวลาหรือห้องที่ขอไม่ว่างแล้วครับ นี่คือตัวเลือกอื่นที่ตรวจสอบล่าสุด โดยคงจำนวนคน อุปกรณ์ และระยะเวลาเดิม กรุณาเลือกและยืนยันอีกครั้ง"
+        if thai
+        else "Your requested room or time is unavailable. Here are checked alternatives with the same group size, equipment and duration. Select an option and confirm again.",
+        proposals=verified,
+        proposal=verified[0],
+    )
+
+
+@router.post("/assistant/alternatives")
+def alternatives(
+    request: AlternativeRequest, response: Response, account: CurrentAccount
+) -> ChatReply:
+    response.headers["Cache-Control"] = "no-store"
+    enforce_rate_limit(account.id)
+    try:
+        return alternative_reply(request, response)
+    except (
+        OpenAIError,
+        SQLAlchemyError,
+        ValidationError,
+        ValueError,
+        OSError,
+    ) as error:
+        logger.warning("Alternative lookup failed: %s", type(error).__name__)
+        raise HTTPException(
+            503, "Could not check alternatives. Retry or use the booking form."
+        ) from None
 
 
 @router.post("/assistant/chat")
@@ -570,6 +635,23 @@ def propose_room_booking(
         return ChatReply(reply=CLARIFICATIONS["equipment_needed"][0 if thai else 1])
     if len(request.equipment) != len(set(request.equipment)):
         return ChatReply(reply=CLARIFICATIONS["equipment"][0 if thai else 1])
+    start = datetime.combine(
+        request.day, time(request.start_hour), tzinfo=BOOKING_TIMEZONE
+    )
+    alternative_request = AlternativeRequest(
+        room_name=request.room_name,
+        prefer_largest=request.prefer_largest,
+        party_size=request.people,
+        equipment=request.equipment,
+        language="th" if thai else "en",
+        slots=[
+            BookingWindow(
+                starts_at=start + timedelta(hours=offset),
+                ends_at=start + timedelta(hours=offset + 1),
+            )
+            for offset in range(request.end_hour - request.start_hour)
+        ],
+    )
     slots_by_room = load_room_slots(request.day, response, people=request.people)
     available = {}
     for room_id, slots in slots_by_room.items():
@@ -603,14 +685,7 @@ def propose_room_booking(
                     if item.name in request.equipment and item.quantity == 0
                 ]
                 if missing:
-                    names = ", ".join(missing)
-                    return ChatReply(
-                        reply=(
-                            f"{names} ไม่ว่างครบช่วงเวลาที่ขอครับ เลือกเวลาอื่นหรือเปลี่ยนอุปกรณ์ได้เลย"
-                            if thai
-                            else f"{names} is unavailable for the full requested time. Choose another time or change the equipment."
-                        )
-                    )
+                    return alternative_reply(alternative_request, response)
             proposals = []
             for room_id, name, capacity, image_key in session.execute(query):
                 if (
@@ -637,11 +712,7 @@ def propose_room_booking(
                     proposal=proposals[0],
                     proposals=proposals,
                 )
-    return ChatReply(
-        reply="ไม่พบห้องที่ว่างครบตามช่วงเวลาที่ขอครับ ลองเลือกห้องหรือเวลาอื่น"
-        if thai
-        else "No matching room is available for the entire requested time. Try another room or time."
-    )
+    return alternative_reply(alternative_request, response)
 
 
 def search_rooms(search: AvailabilitySearch, response: Response, *, thai: bool) -> str:
