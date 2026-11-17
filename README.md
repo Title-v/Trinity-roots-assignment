@@ -97,6 +97,7 @@ Passwords are hashed with Argon2. A signed HttpOnly cookie identifies the accoun
 | **Availability polling** | The page refreshes using the existing HTTP API about every five seconds. | It sends repeated requests and can briefly show an outdated slot. |
 | **AI proposals with user confirmation** | The user reviews the details, and chat shares the form's booking API. | Confirmation adds a step, and availability can change during review. |
 | **In-memory rate limits** | Each account gets 10 chat requests per rolling 60 seconds without another storage service. | Counts reset on restart and are separate for each worker. |
+| **Equipment follows the room booking** | Users manage one reservation. Changing the room's times moves its equipment too, and cancelling the room releases everything together. | Equipment requires a room booking and uses all its selected time slots, even when needed for only part of the meeting. Keeping equipment after cancelling the room would require a separate borrowing flow. |
 | **Automatic equipment allocation** | Users choose a type, and the backend finds one unit available throughout the booking. | Each checkbox reserves one unit. Requests using the same equipment category briefly wait for inventory locks. |
 
 ## Assistant guardrails and logs
