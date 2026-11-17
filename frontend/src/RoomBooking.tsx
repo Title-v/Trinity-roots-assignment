@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { EquipmentPicker, type EquipmentType } from './EquipmentPicker'
 
 type Room = { id: number; name: string; capacity: number | null; image_key: string | null }
 type Slot = { starts_at: string; ends_at: string; status: 'available' | 'booked' | 'past' }
@@ -136,6 +137,7 @@ function RoomSlots({ room, search, signedIn, onSignIn, slots, onRefresh }: Props
   room: Room; search: Search; slots: Slot[] | null; onRefresh: () => void
 }) {
   const [selected, setSelected] = useState<string[]>([])
+  const [equipment, setEquipment] = useState<EquipmentType[]>([])
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
   const chosen = slots?.filter((item) => selected.includes(item.starts_at) && item.status === 'available') ?? []
@@ -154,6 +156,7 @@ function RoomSlots({ room, search, signedIn, onSignIn, slots, onRefresh }: Props
           resource_id: room.id,
           party_size: people,
           slots: chosen.map(({ starts_at, ends_at }) => ({ starts_at, ends_at })),
+          equipment,
         }),
       })
       if (!response.ok) {
@@ -162,6 +165,7 @@ function RoomSlots({ room, search, signedIn, onSignIn, slots, onRefresh }: Props
       }
       setMessage(`Booking confirmed for ${room.name} on ${day}: ${chosen.length} hour(s).`)
       setSelected([])
+      setEquipment([])
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not book this room.')
     } finally {
@@ -192,6 +196,8 @@ function RoomSlots({ room, search, signedIn, onSignIn, slots, onRefresh }: Props
       {selected.length > 0 && slots && !canConfirm && (
         <p role="status">Deselect any booked or past slots before confirming.</p>
       )}
+      <EquipmentPicker slots={canConfirm ? chosen : []} selected={equipment}
+        onChange={setEquipment} disabled={pending} />
       {canConfirm && (
         <button className="home-primary" type="button" disabled={pending} onClick={signedIn ? confirm : onSignIn}>
           {pending ? 'Booking…' : signedIn ? `Confirm booking · ${selected.length} hr` : 'Sign in to confirm'}

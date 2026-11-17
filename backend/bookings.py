@@ -3,7 +3,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field, PositiveInt
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
+from sqlalchemy.dialects.postgresql import Range
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +17,14 @@ from availability import (
     within_business_hours,
 )
 from database import get_engine
-from models import Booking, Resource
+from equipment import (
+    EquipmentItem,
+    EquipmentSummary,
+    EquipmentType,
+    equipment_availability,
+    reserve_equipment,
+)
+from models import Booking, BookingEquipment, Resource
 
 router = APIRouter(tags=["bookings"])
 CurrentAccount = Annotated[Account, Depends(me)]
@@ -25,6 +33,7 @@ CurrentAccount = Annotated[Account, Depends(me)]
 class BookingRequest(BookingWindow):
     resource_id: PositiveInt
     party_size: PositiveInt
+    equipment: list[EquipmentType] = Field(default_factory=list, max_length=3)
 
 
 class RoomSlot(BookingWindow):
@@ -70,7 +79,7 @@ def load_room_slots(
     now = datetime.now(BOOKING_TIMEZONE)
     response.headers["Cache-Control"] = "no-store"
     query = (
-        select(Resource.id, Booking.starts_at, Booking.ends_at)
+        select(Resource.id, Booking.time_ranges)
         .outerjoin(
             Booking,
             and_(
@@ -89,10 +98,12 @@ def load_room_slots(
 
     bookings_by_room: dict[int, list[tuple[datetime, datetime]]] = {}
     with Session(get_engine()) as session:
-        for resource_id, start, end in session.execute(query):
+        for resource_id, time_ranges in session.execute(query):
             bookings = bookings_by_room.setdefault(resource_id, [])
-            if start is not None and end is not None:
-                bookings.append((start, end))
+            if time_ranges is not None:
+                for period in time_ranges:
+                    assert period.lower is not None and period.upper is not None
+                    bookings.append((period.lower, period.upper))
 
     return {
         resource_id: build_slots(opens, closes, now, bookings)
@@ -124,15 +135,22 @@ def build_slots(
     return slots
 
 
-class BookingBatch(BaseModel):
+class BookingSlots(BaseModel):
+    slots: list[BookingWindow] = Field(min_length=1, max_length=10)
+    equipment: list[EquipmentType] | None = Field(default=None, max_length=3)
+
+
+class BookingBatch(BookingSlots):
     resource_id: PositiveInt
     party_size: PositiveInt
-    slots: list[BookingWindow] = Field(min_length=1, max_length=10)
+    equipment: list[EquipmentType] = Field(default_factory=list, max_length=3)
 
 
 @router.post("/bookings", status_code=201)
 def create_booking(window: BookingRequest, account: CurrentAccount) -> dict[str, int]:
-    ids = save_bookings(window.resource_id, window.party_size, [window], account)
+    ids = save_bookings(
+        window.resource_id, window.party_size, [window], account, window.equipment
+    )
     return {"id": ids[0]}
 
 
@@ -142,49 +160,82 @@ def create_booking_batch(
 ) -> dict[str, list[int]]:
     return {
         "ids": save_bookings(
-            request.resource_id, request.party_size, request.slots, account
+            request.resource_id,
+            request.party_size,
+            request.slots,
+            account,
+            request.equipment,
         )
     }
 
 
 def save_bookings(
-    resource_id: int, party_size: int, slots: list[BookingWindow], account: Account
+    resource_id: int,
+    party_size: int,
+    slots: list[BookingWindow],
+    account: Account,
+    equipment: list[EquipmentType] | None = None,
 ) -> list[int]:
+    slots = validate_slots(slots)
+
+    try:
+        with Session(get_engine()) as session, session.begin():
+            resource = session.get(Resource, resource_id)
+            if resource is None or not resource.is_active:
+                raise HTTPException(404, "This room is no longer listed.")
+            if resource.kind != "room":
+                raise HTTPException(
+                    422, "Equipment must be attached to a room booking."
+                )
+            if resource.capacity is None or party_size > resource.capacity:
+                raise HTTPException(422, "This room cannot accommodate your group.")
+            booking = Booking(
+                resource_id=resource.id,
+                user_id=account.id,
+                status="confirmed",
+            )
+            set_booking_slots(booking, slots)
+            session.add(booking)
+            session.flush()
+            if equipment:
+                reserve_equipment(session, booking, equipment)
+            ids = [booking.id]
+    except IntegrityError as error:
+        if getattr(error.orig, "sqlstate", None) == "23P01":
+            raise HTTPException(
+                409,
+                "The room or equipment was just booked. Please review your selection.",
+            ) from None
+        raise
+    return ids
+
+
+def validate_slots(slots: list[BookingWindow]) -> list[BookingWindow]:
     for slot in slots:
         validate_window(slot)
     starts = {slot.starts_at for slot in slots}
     dates = {start.astimezone(BOOKING_TIMEZONE).date() for start in starts}
     if len(starts) != len(slots) or len(dates) != 1:
         raise HTTPException(422, "Choose distinct slots on the same date.")
+    return sorted(slots, key=lambda slot: slot.starts_at)
 
-    try:
-        with Session(get_engine()) as session, session.begin():
-            resource = session.get(Resource, resource_id)
-            if resource is None or resource.kind != "room" or not resource.is_active:
-                raise HTTPException(404, "This room is no longer listed.")
-            if resource.capacity is None or party_size > resource.capacity:
-                raise HTTPException(422, "This room cannot accommodate your group.")
-            bookings = [
-                Booking(
-                    resource_id=resource.id,
-                    user_id=account.id,
-                    starts_at=slot.starts_at,
-                    ends_at=slot.ends_at,
-                    status="confirmed",
-                )
-                for slot in sorted(slots, key=lambda slot: slot.starts_at)
-            ]
-            session.add_all(bookings)
-            session.flush()
-            ids = [booking.id for booking in bookings]
-    except IntegrityError as error:
-        if getattr(error.orig, "sqlstate", None) == "23P01":
-            raise HTTPException(
-                409,
-                "A selected slot was just booked. Please review the available times.",
-            ) from None
-        raise
-    return ids
+
+def set_booking_slots(booking: Booking, slots: list[BookingWindow]) -> None:
+    booking.starts_at = slots[0].starts_at
+    booking.ends_at = slots[-1].ends_at
+    booking.time_ranges = [Range(slot.starts_at, slot.ends_at) for slot in slots]
+
+
+def booking_slots(booking: Booking) -> list[BookingWindow]:
+    slots = []
+    for period in booking.time_ranges:
+        assert period.lower is not None and period.upper is not None
+        start = period.lower
+        while start < period.upper:
+            end = min(start + timedelta(hours=1), period.upper)
+            slots.append(BookingWindow(starts_at=start, ends_at=end))
+            start = end
+    return slots
 
 
 class MyBooking(BookingWindow):
@@ -192,6 +243,8 @@ class MyBooking(BookingWindow):
     room_name: str
     status: str
     can_cancel: bool
+    slots: list[BookingWindow]
+    equipment: list[EquipmentItem]
 
 
 @router.get("/bookings")
@@ -199,6 +252,23 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
     response.headers["Cache-Control"] = "no-store"
     now = datetime.now(UTC)
     with Session(get_engine()) as session:
+        equipment_by_booking: dict[int, list[EquipmentItem]] = {}
+        for booking_id, unit in session.execute(
+            select(BookingEquipment.booking_id, Resource)
+            .join(Resource, Resource.id == BookingEquipment.resource_id)
+            .join(Booking, Booking.id == BookingEquipment.booking_id)
+            .where(Booking.user_id == account.id)
+            .order_by(Resource.name)
+        ):
+            equipment_by_booking.setdefault(booking_id, []).append(
+                EquipmentItem.model_validate(
+                    {
+                        "id": unit.id,
+                        "name": unit.name,
+                        "category": unit.name.split(" ", 1)[0],
+                    }
+                )
+            )
         rows = session.execute(
             select(Booking, Resource.name)
             .join(Resource)
@@ -213,6 +283,8 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
                 ends_at=booking.ends_at,
                 status=booking.status,
                 can_cancel=booking.status == "confirmed" and booking.starts_at > now,
+                slots=booking_slots(booking),
+                equipment=equipment_by_booking.get(booking.id, []),
             )
             for booking, name in rows
         ]
@@ -222,13 +294,19 @@ def my_bookings(account: CurrentAccount, response: Response) -> list[MyBooking]:
 def cancel_booking(booking_id: PositiveInt, account: CurrentAccount) -> Response:
     with Session(get_engine()) as session, session.begin():
         booking = lock_owned_booking(session, booking_id, account)
-        if booking.status == "cancelled":
-            return Response(status_code=204)
-        if booking.status != "confirmed" or booking.starts_at <= datetime.now(UTC):
+        if booking.status not in {"confirmed", "cancelled"} or (
+            booking.status == "confirmed" and booking.starts_at <= datetime.now(UTC)
+        ):
             raise HTTPException(
                 409, "Only bookings that have not started can be cancelled."
             )
         booking.status = "cancelled"
+        # Keep every linked reservation in sync, including repeated cancellations.
+        session.execute(
+            update(BookingEquipment)
+            .where(BookingEquipment.booking_id == booking.id)
+            .values(status=booking.status)
+        )
     return Response(status_code=204)
 
 
@@ -245,7 +323,9 @@ def lock_owned_booking(session: Session, booking_id: int, account: Account) -> B
 
 @router.patch("/bookings/{booking_id}", status_code=204)
 def reschedule_booking(
-    booking_id: PositiveInt, window: BookingWindow, account: CurrentAccount
+    booking_id: PositiveInt,
+    window: BookingSlots | BookingWindow,
+    account: CurrentAccount,
 ) -> Response:
     try:
         with Session(get_engine()) as session, session.begin():
@@ -254,18 +334,66 @@ def reschedule_booking(
                 raise HTTPException(
                     409, "Only confirmed bookings that have not started can be edited."
                 )
-            validate_window(window)
+            slots = validate_slots(
+                window.slots if isinstance(window, BookingSlots) else [window]
+            )
             resource = session.get(Resource, booking.resource_id)
             if resource is None or resource.kind != "room" or not resource.is_active:
                 raise HTTPException(
                     409, "This room is no longer available for booking."
                 )
-            booking.starts_at = window.starts_at
-            booking.ends_at = window.ends_at
+            set_booking_slots(booking, slots)
+            selected_equipment = (
+                window.equipment if isinstance(window, BookingSlots) else None
+            )
+            if selected_equipment is None:
+                names = session.scalars(
+                    select(Resource.name)
+                    .join(BookingEquipment, BookingEquipment.resource_id == Resource.id)
+                    .where(BookingEquipment.booking_id == booking.id)
+                ).all()
+                selected_equipment = [name.split(" ", 1)[0] for name in names]
+            reserve_equipment(session, booking, selected_equipment)
     except IntegrityError as error:
         if getattr(error.orig, "sqlstate", None) == "23P01":
             raise HTTPException(
-                409, "That time is already booked. Choose another time."
+                409, "The room or equipment is already booked. Choose another time."
             ) from None
         raise
     return Response(status_code=204)
+
+
+@router.post("/equipment/availability", tags=["equipment"])
+def check_equipment(
+    request: BookingSlots, response: Response
+) -> list[EquipmentSummary]:
+    slots = validate_slots(request.slots)
+    response.headers["Cache-Control"] = "no-store"
+    with Session(get_engine()) as session:
+        return equipment_availability(
+            session, [Range(slot.starts_at, slot.ends_at) for slot in slots]
+        )
+
+
+@router.post("/bookings/{booking_id}/equipment-availability")
+def check_booking_equipment(
+    booking_id: PositiveInt,
+    request: BookingSlots,
+    response: Response,
+    account: CurrentAccount,
+) -> list[EquipmentSummary]:
+    response.headers["Cache-Control"] = "no-store"
+    with Session(get_engine()) as session:
+        booking = session.scalar(
+            select(Booking).where(
+                Booking.id == booking_id, Booking.user_id == account.id
+            )
+        )
+        if booking is None:
+            raise HTTPException(404, "Booking not found.")
+        slots = validate_slots(request.slots)
+        return equipment_availability(
+            session,
+            [Range(slot.starts_at, slot.ends_at) for slot in slots],
+            exclude_booking_id=booking.id,
+        )

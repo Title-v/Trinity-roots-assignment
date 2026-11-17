@@ -61,18 +61,28 @@ Open the URL Vite prints, usually [localhost:5173](http://localhost:5173). Choos
 ## Book a room
 
 1. Click **Book now** and enter a date and group size. The page shows rooms that fit your group and refreshes availability about every five seconds.
-2. Pick one or more one-hour slots in the same room on the same day, then confirm. Rooms can be booked daily from **08:00 to 18:00 Bangkok time**. Each slot must start in the future and on the hour.
-3. Open **My bookings** to see your reservations. Use **Edit booking** to change the day or time of one upcoming slot in the same room, then **Save changes**. Use **Cancel booking** and confirm to release a slot.
+2. Pick one or more one-hour slots in the same room on the same day. Optionally tick **Projector**, **Camera**, or **Microphone** to reserve one unit of each selected type for all those slots, then confirm. The checkboxes show how many units are available for the whole selection. Rooms can be booked daily from **08:00 to 18:00 Bangkok time**. Each slot must start in the future and on the hour.
+3. Open **My bookings** to see your reservations and assigned equipment. All selected slots appear in one booking. Use **Edit booking** to change the date, time slots, or equipment, then **Save changes**. Cancellation releases the room and all its equipment together.
 
 The assistant is on the booking page. On mobile, tap **Ask AI**. Try **“Book a room for 8 tomorrow from 10:00 to 12:00”** or **“จองห้องสำหรับ 8 คน พรุ่งนี้ 10:00–12:00”**. The backend finds a room free for the whole period and shows a proposal. Review it, then click **Confirm booking**. The slots are reserved when confirmation succeeds, after another availability check.
 
 When a request gives only a start time, the assistant assumes one hour. When no room is named, the backend chooses the smallest available room that fits the group. A request for a large room selects the largest suitable room.
 
+## Booking assumptions
+
+- **Equipment belongs to a room booking.** Users can select equipment when booking a room or add it to their own upcoming confirmed room booking. This keeps the room and its equipment under one reservation that the user can manage together.
+- **Equipment uses exactly the room's selected time slots.** For example, a room booked from 10:00 to 12:00 reserves its projector for 10:00 to 12:00 too. Changing the room's date or time slots moves the equipment with it. Removing a time slot releases both the room and its equipment for that period.
+- **Cancelling the room automatically cancels all linked equipment.** One confirmation releases every reserved time slot and equipment unit in that booking.
+
+The backend saves these changes in one transaction. If the room or selected equipment is unavailable, it rolls back the whole operation. A failed edit preserves the previous room and equipment reservations.
+
 ## How bookings stay consistent
 
-If two users try to book the same room and time, PostgreSQL's `bookings_no_overlap` constraint lets only one succeed. It also protects edits. Time ranges include the start and exclude the end, so **08:00–09:00** and **09:00–10:00** can both be booked.
+If two users try to book the same room and time, PostgreSQL's `bookings_no_overlap` constraint lets only one succeed. It also protects edits. Each booking stores its selected periods in a `tstzmultirange` column. This supports both adjacent and separated slots. For example, selecting **08:00–09:00** and **10:00–11:00** leaves **09:00–10:00** available. Range boundaries allow back-to-back bookings.
 
 All slots in a new booking are saved in one transaction. If any slot conflicts, the whole transaction rolls back and returns **409 Conflict**. A conflicting edit preserves the original reservation. Edits and cancellations lock the booking row while updating it.
+
+Equipment is shared across rooms. The backend assigns an available physical unit of each selected type. Inventory rows are locked in a consistent order during allocation, and a database constraint prevents overlapping reservations for the same unit. Room and equipment changes commit together. If equipment runs out, the whole operation rolls back.
 
 Bookings start as `confirmed` after the user confirms. The owner can edit or cancel them before they start, and cancellation changes the status to `cancelled`. The schema allows `completed`, but elapsed bookings currently keep their existing status. This keeps the workflow simple without a scheduled status-update job.
 
@@ -83,10 +93,11 @@ Passwords are hashed with Argon2. A signed HttpOnly cookie identifies the accoun
 | Decision | Why it works for this app | Trade-off |
 | --- | --- | --- |
 | **Database conflict checks** | The database enforces one rule even when several requests arrive together. | The GiST constraint and `btree_gist` extension tie this design to PostgreSQL. |
-| **One record per hour** | Users can move or cancel one hour of a longer booking. | A two-hour booking appears as two records and takes two edits to move. Partial-hour bookings are outside the current scope. |
+| **One booking for all selected slots** | A two-hour selection creates one booking that can be moved or cancelled together. Users can add or remove hourly slots when editing. | The PostgreSQL multirange type ties the storage format to PostgreSQL. A booking can be edited or cancelled before its first slot starts. |
 | **Availability polling** | The page refreshes using the existing HTTP API about every five seconds. | It sends repeated requests and can briefly show an outdated slot. |
 | **AI proposals with user confirmation** | The user reviews the details, and chat shares the form's booking API. | Confirmation adds a step, and availability can change during review. |
 | **In-memory rate limits** | Each account gets 10 chat requests per rolling 60 seconds without another storage service. | Counts reset on restart and are separate for each worker. |
+| **Automatic equipment allocation** | Users choose a type, and the backend finds one unit available throughout the booking. | Each checkbox reserves one unit. Requests using the same equipment category briefly wait for inventory locks. |
 
 ## Assistant guardrails and logs
 
@@ -137,13 +148,15 @@ A successful response is `{"status":"ok","database":"connected"}`. This checks c
 | `backend/models.py` and `backend/migrations/` | Database models and schema history |
 | `neon.ts` | Neon branch configuration |
 
-The four application tables are `users`, `resources`, `bookings`, and `availability_rules`. Room capacity is stored in `resources`. Opening hours currently come from `backend/availability.py`. The `availability_rules` table is reserved for future schedules per resource.
+The application tables are `users`, `resources`, `bookings`, `booking_equipment`, and `availability_rules`. Room capacity and individual equipment units are stored in `resources`. `booking_equipment` links assigned units to a room booking and records their reserved periods. Opening hours currently come from `backend/availability.py`. The `availability_rules` table is reserved for future schedules per resource.
+
+The time-range migration backfills existing bookings with their original periods. Earlier bookings keep their individual IDs. New selections are saved together as one booking.
 
 ## Current scope
 
-- Development currently focuses on room booking. Equipment can be browsed, and equipment reservations are pending.
+- Each equipment checkbox reserves one unit of that type for the room booking.
 - All rooms share daily Bangkok opening hours. Holidays and schedules per room are outside the current scope.
 - Room photos ship with the frontend to keep setup simple. Uploads and external image storage are outside the current scope.
-- Chat handles new bookings. Edits and cancellations use **My bookings** and its existing ownership checks.
+- Chat handles new room bookings. Equipment can be selected in the form or added through **My bookings**, which also handles edits and cancellations.
 - Chat history lives in the browser page, and recent user messages provide follow-up context. Reloading the page clears the conversation.
 - The exercise still needs automated tests that run without an LLM key, one command to start both servers, and at least one additional feature. The options are an MCP server, conflict suggestions checked by the backend, an evaluation harness, or typed decisions built on Laya.

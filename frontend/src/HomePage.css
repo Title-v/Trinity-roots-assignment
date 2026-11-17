@@ -562,6 +562,53 @@
   color: #842f25;
 }
 
+.booking-edit-times {
+  flex: 1 0 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 14px;
+}
+
+.booking-edit-times .slot-grid { margin-bottom: 0; }
+
+.equipment-picker {
+  flex: 1 0 100%;
+  min-width: 0;
+  margin: 0 0 20px;
+  padding: 0;
+  border: 0;
+}
+
+.equipment-picker legend { font-weight: 600; font-size: 15px; }
+.equipment-picker p { margin: 6px 0 12px; color: var(--home-muted); font-size: 13px; }
+.equipment-picker [role="alert"] { color: #842f25; }
+
+.equipment-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+}
+
+.equipment-picker .equipment-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d7ddd2;
+  border-radius: 6px;
+  background: #fffdf8;
+  cursor: pointer;
+}
+
+.equipment-option:has(input:checked) { border-color: #98ac9b; background: #edf2e9; }
+.equipment-option:has(input:disabled) { opacity: .6; cursor: default; }
+.equipment-picker input[type="checkbox"] { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: #153825; }
+.equipment-option strong { font-size: 14px; font-weight: 500; }
+.equipment-option small { display: block; margin-top: 2px; font-size: 12px; color: var(--home-muted); }
+.booking-edit-form .equipment-picker { margin-bottom: 0; }
+
 .my-bookings-empty,
 .my-bookings-notice {
   margin-top: 20px;

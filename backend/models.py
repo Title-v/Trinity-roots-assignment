@@ -7,7 +7,9 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import TSTZMULTIRANGE, ExcludeConstraint, Range
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -66,6 +68,12 @@ class Booking(Base):
             "status IN ('confirmed', 'cancelled', 'completed')",
             name="ck_bookings_status",
         ),
+        CheckConstraint(
+            "NOT isempty(time_ranges) AND NOT lower_inf(time_ranges) "
+            "AND NOT upper_inf(time_ranges) AND lower(time_ranges) = starts_at "
+            "AND upper(time_ranges) = ends_at",
+            name="ck_bookings_range_bounds",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -73,8 +81,39 @@ class Booking(Base):
     resource_id: Mapped[int] = mapped_column(ForeignKey("resources.id"), index=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    time_ranges: Mapped[list[Range[datetime]]] = mapped_column(TSTZMULTIRANGE)
     status: Mapped[str] = mapped_column(String(16), server_default="confirmed")
     version: Mapped[int] = mapped_column(server_default="1")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class BookingEquipment(Base):
+    __tablename__ = "booking_equipment"
+    __table_args__ = (
+        UniqueConstraint("booking_id", "resource_id", name="uq_booking_equipment_unit"),
+        CheckConstraint(
+            "status IN ('confirmed', 'cancelled', 'completed')",
+            name="ck_booking_equipment_status",
+        ),
+        CheckConstraint(
+            "NOT isempty(time_ranges) AND NOT lower_inf(time_ranges) AND NOT upper_inf(time_ranges)",
+            name="ck_booking_equipment_ranges",
+        ),
+        ExcludeConstraint(
+            ("resource_id", "="),
+            ("time_ranges", "&&"),
+            where=text("status = 'confirmed'"),
+            using="gist",
+            name="booking_equipment_no_overlap",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_id: Mapped[int] = mapped_column(
+        ForeignKey("bookings.id", ondelete="CASCADE")
+    )
+    resource_id: Mapped[int] = mapped_column(ForeignKey("resources.id"))
+    time_ranges: Mapped[list[Range[datetime]]] = mapped_column(TSTZMULTIRANGE)
+    status: Mapped[str] = mapped_column(String(16))

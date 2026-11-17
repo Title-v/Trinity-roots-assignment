@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { EquipmentPicker, type EquipmentItem, type EquipmentType } from './EquipmentPicker'
 
 type Booking = {
   id: number
   room_name: string
   starts_at: string
   ends_at: string
+  slots: { starts_at: string; ends_at: string }[]
+  equipment: EquipmentItem[]
   status: 'confirmed' | 'cancelled' | 'completed'
   can_cancel: boolean
 }
@@ -30,8 +33,14 @@ export function MyBookings() {
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
   const [cancelError, setCancelError] = useState('')
-  const [edit, setEdit] = useState<{ id: number; day: string; hour: number } | null>(null)
+  const [edit, setEdit] = useState<{
+    id: number; day: string; hours: number[]; equipment: EquipmentType[]
+  } | null>(null)
   const [editError, setEditError] = useState('')
+  const editSlots = edit ? [...edit.hours].sort((a, b) => a - b).map((hour) => ({
+    starts_at: `${edit.day}T${formatHour(hour)}:00+07:00`,
+    ends_at: `${edit.day}T${formatHour(hour + 1)}:00+07:00`,
+  })) : []
 
   useEffect(() => {
     const controller = new AbortController()
@@ -50,10 +59,8 @@ export function MyBookings() {
 
   async function reschedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!edit || pending) return
-    const { id, day, hour } = edit
-    const starts_at = `${day}T${formatHour(hour)}:00+07:00`
-    const ends_at = `${day}T${formatHour(hour + 1)}:00+07:00`
+    if (!edit || pending || edit.hours.length === 0) return
+    const { id, equipment } = edit
     setPending(true)
     setEditError('')
     setMessage('')
@@ -61,15 +68,15 @@ export function MyBookings() {
       const response = await fetch(`/api/bookings/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ starts_at, ends_at }),
+        body: JSON.stringify({ slots: editSlots, equipment }),
       })
       if (!response.ok) {
         const body = await response.json().catch(() => null)
         throw new Error(typeof body?.detail === 'string' ? body.detail : 'Could not save changes.')
       }
-      setBookings((current) => current?.map((booking) =>
-        booking.id === id ? { ...booking, starts_at, ends_at } : booking,
-      ).sort((a, b) => Date.parse(b.starts_at) - Date.parse(a.starts_at) || b.id - a.id) ?? null)
+      setBookings(null)
+      setLoadError(false)
+      setReload((value) => value + 1)
       setEdit(null)
       setMessage('Booking updated.')
     } catch (error) {
@@ -122,74 +129,95 @@ export function MyBookings() {
           </div>
         ) : (
           <ul className="booking-room-list">
-            {bookings.map((booking) => (
-              <li key={booking.id} className="my-booking-card">
-                <div>
-                  <h2>{booking.room_name}</h2>
-                  <p>{dateFormat.format(new Date(booking.starts_at))}</p>
-                  <p>{timeFormat.format(new Date(booking.starts_at))}–{timeFormat.format(new Date(booking.ends_at))}</p>
-                </div>
-                <div className="my-booking-actions">
-                  <span className={`booking-status booking-status-${booking.status}`}>{booking.status}</span>
-                  {selected === booking.id ? (
-                    <div className="booking-cancel-confirm">
-                      <p>Cancel this time slot?</p>
-                      <button className="home-link" type="button" disabled={pending} onClick={() => setSelected(null)}>Keep booking</button>
-                      <button className="booking-cancel" type="button" disabled={pending} onClick={() => void cancel(booking.id)}>
-                        {pending ? 'Cancelling…' : 'Confirm cancellation'}
-                      </button>
-                      {cancelError && <p role="alert">{cancelError}</p>}
-                    </div>
-                  ) : booking.can_cancel && edit?.id !== booking.id && (
-                    <>
-                      <button className="booking-edit" type="button" disabled={pending} onClick={() => {
-                        const start = new Date(booking.starts_at)
-                        setSelected(null)
-                        setEditError('')
-                        setMessage('')
-                        setEdit({
-                          id: booking.id,
-                          day: inputDateFormat.format(start),
-                          hour: Number(timeFormat.format(start).split(':')[0]),
-                        })
-                      }}>Edit booking</button>
-                      <button className="booking-cancel" type="button" disabled={pending} onClick={() => {
-                        setEdit(null)
-                        setCancelError('')
-                        setSelected(booking.id)
-                      }}>Cancel booking</button>
-                    </>
+            {bookings.map((booking) => {
+              const slots = booking.slots ?? [{ starts_at: booking.starts_at, ends_at: booking.ends_at }]
+              return (
+                <li key={booking.id} className="my-booking-card">
+                  <div>
+                    <h2>{booking.room_name}</h2>
+                    <p>{dateFormat.format(new Date(booking.starts_at))}</p>
+                    <p>{slots.map((slot) =>
+                      `${timeFormat.format(new Date(slot.starts_at))}–${timeFormat.format(new Date(slot.ends_at))}`,
+                    ).join(' · ')}</p>
+                    {(booking.equipment?.length ?? 0) > 0 && (
+                      <p className="my-booking-equipment">Equipment · {booking.equipment.map((item) => item.name).join(', ')}</p>
+                    )}
+                  </div>
+                  <div className="my-booking-actions">
+                    <span className={`booking-status booking-status-${booking.status}`}>{booking.status}</span>
+                    {selected === booking.id ? (
+                      <div className="booking-cancel-confirm">
+                        <p>Cancel this room booking and all its equipment?</p>
+                        <button className="home-link" type="button" disabled={pending} onClick={() => setSelected(null)}>Keep booking</button>
+                        <button className="booking-cancel" type="button" disabled={pending} onClick={() => void cancel(booking.id)}>
+                          {pending ? 'Cancelling…' : 'Confirm cancellation'}
+                        </button>
+                        {cancelError && <p role="alert">{cancelError}</p>}
+                      </div>
+                    ) : booking.can_cancel && edit?.id !== booking.id && (
+                      <>
+                        <button className="booking-edit" type="button" disabled={pending} onClick={() => {
+                          const start = new Date(booking.starts_at)
+                          setSelected(null)
+                          setEditError('')
+                          setMessage('')
+                          setEdit({
+                            id: booking.id,
+                            day: inputDateFormat.format(start),
+                            hours: slots.map((slot) =>
+                              Number(timeFormat.format(new Date(slot.starts_at)).split(':')[0]),
+                            ),
+                            equipment: (booking.equipment ?? []).map((item) => item.category),
+                          })
+                        }}>Edit booking</button>
+                        <button className="booking-cancel" type="button" disabled={pending} onClick={() => {
+                          setEdit(null)
+                          setCancelError('')
+                          setSelected(booking.id)
+                        }}>Cancel booking</button>
+                      </>
+                    )}
+                  </div>
+                  {edit?.id === booking.id && (
+                    <form className="booking-edit-form" onSubmit={(event) => void reschedule(event)}>
+                      <label>
+                        New date
+                        <input type="date" required min={inputDateFormat.format(new Date())}
+                          value={edit.day} disabled={pending}
+                          onChange={(event) => setEdit({ ...edit, day: event.target.value })} />
+                      </label>
+                      <fieldset className="booking-edit-times" disabled={pending}>
+                        <legend>Time slots (Bangkok) · {edit.hours.length} selected</legend>
+                        <div className="slot-grid">
+                          {bookingHours.map((hour) => (
+                            <button key={hour} type="button" aria-pressed={edit.hours.includes(hour)}
+                              onClick={() => {
+                                setEdit({ ...edit, hours: edit.hours.includes(hour)
+                                  ? edit.hours.filter((selectedHour) => selectedHour !== hour)
+                                  : [...edit.hours, hour] })
+                                setEditError('')
+                              }}>
+                              {formatHour(hour)}–{formatHour(hour + 1)}
+                            </button>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <EquipmentPicker slots={editSlots} selected={edit.equipment}
+                        onChange={(equipment) => setEdit({ ...edit, equipment })}
+                        disabled={pending} bookingId={booking.id} />
+                      <div className="my-booking-actions">
+                        <button className="booking-edit" type="submit" disabled={pending || edit.hours.length === 0}>
+                          {pending ? 'Saving…' : 'Save changes'}
+                        </button>
+                        <button className="home-link" type="button" disabled={pending}
+                          onClick={() => setEdit(null)}>Discard changes</button>
+                      </div>
+                      {editError && <p className="booking-edit-error" role="alert">{editError}</p>}
+                    </form>
                   )}
-                </div>
-                {edit?.id === booking.id && (
-                  <form className="booking-edit-form" onSubmit={(event) => void reschedule(event)}>
-                    <label>
-                      New date
-                      <input type="date" required min={inputDateFormat.format(new Date())}
-                        value={edit.day} disabled={pending}
-                        onChange={(event) => setEdit({ ...edit, day: event.target.value })} />
-                    </label>
-                    <label>
-                      New time (Bangkok)
-                      <select value={edit.hour} disabled={pending}
-                        onChange={(event) => setEdit({ ...edit, hour: Number(event.target.value) })}>
-                        {bookingHours.map((hour) => (
-                          <option key={hour} value={hour}>{formatHour(hour)}–{formatHour(hour + 1)}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="my-booking-actions">
-                      <button className="booking-edit" type="submit" disabled={pending}>
-                        {pending ? 'Saving…' : 'Save changes'}
-                      </button>
-                      <button className="home-link" type="button" disabled={pending}
-                        onClick={() => setEdit(null)}>Discard changes</button>
-                    </div>
-                    {editError && <p className="booking-edit-error" role="alert">{editError}</p>}
-                  </form>
-                )}
-              </li>
-            ))}
+                </li>
+              )
+            })}
           </ul>
         )}
     </section>
