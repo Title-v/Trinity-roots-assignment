@@ -221,6 +221,43 @@ class RoomClarification(BaseModel):
     ]
 
 
+# Keep the original booking details and wait for a new explicit preference when no options can be shown.
+def unavailable_alternatives_reply(
+    request: AlternativeRequest, *, stale: bool = False
+) -> ChatReply:
+    if stale:
+        messages = (
+            "ตัวเลือกที่พบไม่ผ่านการตรวจสอบล่าสุดแล้วครับ",
+            "The suggested options no longer pass the latest availability check.",
+        )
+    elif request.preference == "same_time":
+        messages = (
+            "ไม่พบห้องอื่นที่ว่างครบช่วงเวลาเดิมและตรงกับจำนวนคนกับอุปกรณ์ที่ต้องการครับ",
+            "No other room is available for all your original time slots with the requested group size and equipment.",
+        )
+    elif request.preference == "same_room":
+        messages = (
+            "ไม่พบเวลาอื่นของห้องเดิมที่ว่างครบตามเงื่อนไขในวันเดียวกันครับ",
+            "No other time in the same room meets your requirements on the same day.",
+        )
+    else:
+        messages = (
+            "ไม่พบตัวเลือกอื่นที่ว่างครบตามเงื่อนไขในวันเดียวกันครับ",
+            "No alternatives meet your requirements on the same day.",
+        )
+    thai = request.language == "th"
+    return ChatReply(
+        reply=messages[0 if thai else 1]
+        + (
+            " ต้องการเปลี่ยนความต้องการหรือเริ่มค้นหาใหม่ไหมครับ? เลือกจากปุ่มด้านล่างได้เลย"
+            if thai
+            else " Choose another preference below or start a new search."
+        ),
+        # Reset only the unanswered preference. Do not change the date, room, slots or equipment.
+        alternative_request=request.model_copy(update={"preference": None}),
+    )
+
+
 # Ask for a preference, build candidates, let the model select, and recheck before replying.
 def alternative_reply(request: AlternativeRequest, response: Response) -> ChatReply:
     if request.preference is None:
@@ -232,38 +269,42 @@ def alternative_reply(request: AlternativeRequest, response: Response) -> ChatRe
         )
     # Filter candidates by the preference, such as keeping the same time or room.
     candidates = find_booking_alternatives(request, response)
-    verified = []
-    if candidates:
-        settings = AssistantSettings()
-        if not settings.openai_api_key:
-            raise HTTPException(
-                503, "The assistant is not configured. Use the booking form."
-            )
-        with OpenAI(
-            api_key=settings.openai_api_key.get_secret_value(),
-            timeout=12.0,
-            max_retries=0,
-            http_client=audited_http_client(),
-        ) as client:
-            selected = suggest_booking_alternatives(
-                client, settings.openai_model, request, candidates
-            )
-        # Another user may book while the model responds; reload availability before display.
-        verified = verify_booking_alternatives(request, selected, response)
+    if not candidates:
+        # A strict preference with no matches must not trigger a search at different times.
+        return unavailable_alternatives_reply(request)
+    settings = AssistantSettings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            503, "The assistant is not configured. Use the booking form."
+        )
+    with OpenAI(
+        api_key=settings.openai_api_key.get_secret_value(),
+        timeout=12.0,
+        max_retries=0,
+        http_client=audited_http_client(),
+    ) as client:
+        selected = suggest_booking_alternatives(
+            client, settings.openai_model, request, candidates
+        )
+    # Another user may book while the model responds; reload availability before display.
+    verified = verify_booking_alternatives(request, selected, response)
     thai = request.language == "th"
     if not verified:
-        return ChatReply(
-            reply="ไม่พบตัวเลือกอื่นที่ว่างตามความต้องการที่เลือกในวันเดียวกันครับ ลองเปลี่ยนวันหรือเงื่อนไขแล้วค้นหาใหม่"
+        # Stale selected options do not prove that every room is full. Ask before searching again.
+        return unavailable_alternatives_reply(request, stale=True)
+    if request.preference == "same_time":
+        reply = (
+            "นี่คือห้องอื่นที่ว่างครบช่วงเวลาเดิมและตรงตามเงื่อนไขครับ เลือกห้องแล้วตรวจสอบรายละเอียดก่อนกดยืนยัน"
             if thai
-            else "No verified alternatives match your preference on the same day. Try a different date or change your requirements."
+            else "These other rooms are available for all your original time slots and requirements. Select a room and review the details before confirming."
         )
-    return ChatReply(
-        reply="ช่วงเวลาหรือห้องที่ขอไม่ว่างแล้วครับ นี่คือตัวเลือกอื่นที่ตรวจสอบล่าสุด โดยคงจำนวนคน อุปกรณ์ และระยะเวลาเดิม กรุณาเลือกและยืนยันอีกครั้ง"
-        if thai
-        else "Your requested room or time is unavailable. Here are checked alternatives with the same group size, equipment and duration. Select an option and confirm again.",
-        proposals=verified,
-        proposal=verified[0],
-    )
+    else:
+        reply = (
+            "นี่คือตัวเลือกอื่นที่ตรวจสอบล่าสุดตามความต้องการของคุณ โดยคงจำนวนคน อุปกรณ์ และระยะเวลาเดิมครับ กรุณาเลือกและยืนยันอีกครั้ง"
+            if thai
+            else "Here are checked alternatives matching your preference with the same group size, equipment and duration. Select an option and confirm again."
+        )
+    return ChatReply(reply=reply, proposals=verified, proposal=verified[0])
 
 
 @router.post("/assistant/alternatives")

@@ -156,7 +156,8 @@ function AssistantContent({ signedIn, onSignIn }: Props) {
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not check alternatives.')
       setMessages((current) => [...current, { role: 'assistant', content: data.reply }])
       setProposals(data.proposals ?? [])
-      setFailedProposal(data.alternative_request ?? (data.proposals?.length ? null : { ...failed, preference: null }))
+      // The backend explicitly reopens the preference question when no options can be shown.
+      setFailedProposal(data.alternative_request ?? null)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not check alternatives.')
     } finally {

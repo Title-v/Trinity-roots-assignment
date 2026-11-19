@@ -260,28 +260,29 @@ def verify_booking_alternatives(
             )
         }
         for candidate in candidates:
+            room = rooms.get(candidate.resource_id)
+            if room is None:
+                continue
+            # Use current database identity when checking which room the user wants to keep or change.
+            original_room = (
+                room.id == request.resource_id
+                if request.resource_id is not None
+                else room.name.casefold()
+                == (request.room_name or "").strip().casefold()
+            )
             if request.preference == "same_time" and {
                 (slot.starts_at, slot.ends_at) for slot in candidate.slots
             } != {(slot.starts_at, slot.ends_at) for slot in request.slots}:
                 continue
-            if request.preference == "same_room":
-                if (
-                    request.resource_id is not None
-                    and candidate.resource_id != request.resource_id
-                ):
-                    continue
-                if (
-                    request.resource_id is None
-                    and candidate.room_name.casefold()
-                    != (request.room_name or "").strip().casefold()
-                ):
-                    continue
+            if request.preference == "same_time" and original_room:
+                continue
+            if request.preference == "same_room" and not original_room:
+                continue
             try:
                 validate_slots(candidate.slots)
             except HTTPException:
                 continue
-            room = rooms.get(candidate.resource_id)
-            if room is None or not all(
+            if not all(
                 slot.starts_at in free.get(room.id, set()) for slot in candidate.slots
             ):
                 continue
