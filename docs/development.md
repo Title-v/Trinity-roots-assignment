@@ -147,6 +147,6 @@ requirements.txt
 | `backend/models.py` and `backend/migrations/` | Database models and schema history |
 | `neon.ts` | Neon branch configuration |
 
-The application tables are `users`, `resources`, `bookings`, `booking_equipment`, and `availability_rules`. Room capacity and individual equipment units are stored in `resources`. `booking_equipment` links assigned units to a room booking and records their reserved periods. Opening hours currently come from `backend/availability.py`. The `availability_rules` table is reserved for future schedules per resource.
+The application tables are `users`, `resources`, `bookings`, `booking_equipment`, `availability_rules`, and `assistant_audit_logs`. The audit table provides durable model logs when database logging is enabled. Room capacity and individual equipment units are stored in `resources`. `booking_equipment` links assigned units to a room booking and records their reserved periods. Opening hours currently come from `backend/availability.py`. The `availability_rules` table is reserved for future schedules per resource.
 
 The time-range migration backfills existing bookings with their original periods. Earlier bookings keep their individual IDs. New selections are saved together as one booking.

@@ -145,7 +145,7 @@ Microsoft Presidio masks detected Thai national IDs, phone numbers, emails and k
 
 **Guardrails cannot catch everything:** patterns may miss spelled-out numbers, unusual formats, unfamiliar unlabelled keys, names and addresses, or hide harmless matching text. Prompt injection can still influence allowed arguments or rankings. User confirmation provides a chance to catch mistakes; it is not a guarantee of correct intent.
 
-The root `.assistant-audit.jsonl` stores the exact masked request and received response bodies, including tool calls and API errors, paired by `request_id`. It is Git-ignored with owner-only permissions (`0600`). Headers are excluded. Missed identifiers and unmasked model responses may remain in the log; automatic retention and rotation are not implemented. A network failure can leave a request without a response.
+Local `.assistant-audit.jsonl` stores the exact masked request and received response bodies, including tool calls and API errors, paired by `request_id`. It is Git-ignored with owner-only permissions (`0600`). On Vercel, `ASSISTANT_AUDIT_BACKEND=database` stores these events in the private `assistant_audit_logs` table instead. Headers are excluded. Missed identifiers and unmasked model responses may remain in the log; automatic retention and rotation are not implemented. A network failure can leave a request without a response.
 
 Chat and alternative-selection clients use 15- and 12-second timeouts with retries disabled. Provider errors or invalid model arguments return an error instead of creating a booking. The normal form calls the booking API directly and remains usable when only the LLM is unavailable. [Guardrail and failure-handling details](docs/design.md#assistant-guardrails-and-logs)
 
@@ -165,6 +165,7 @@ These choices keep the exercise focused on reliable booking and reviewed AI acti
 | [Setup](docs/setup.md) | Exact installation steps, environment variables, migrations, seed data, and startup |
 | [User guide](docs/usage.md) | Form and AI booking, equipment, edits, cancellation, and preference choices |
 | [Design and safeguards](docs/design.md) | Assumptions, transactions, guardrails, logs, conflict-suggestion logic, trade-offs, and why Laya is omitted |
+| [Vercel deployment](docs/deployment.md) | Services, production settings, migrations, durable audit logs, and verification |
 | [Development and testing](docs/development.md) | Test commands and isolation, dependencies, checks, and project structure |
 | [Test cases](tests/README.md) | API and UI scenarios with expected results and implementation links |
 | [Data model and booking flows](docs/diagrams.md) | ER diagram and sequence diagrams for form booking, AI booking, and conflicts |

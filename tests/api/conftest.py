@@ -12,6 +12,7 @@ from uuid import uuid4
 os.environ["DATABASE_URL"] = "postgresql://test:test@127.0.0.1:1/trinity_test"
 os.environ["DATABASE_URL_UNPOOLED"] = os.environ["DATABASE_URL"]
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["ASSISTANT_AUDIT_BACKEND"] = "file"
 os.environ["OPENAI_MODEL"] = "test-model"
 os.environ["SESSION_SECRET"] = "automated-test-session-secret-not-for-deployment"
 
@@ -128,7 +129,7 @@ def db(postgres_url, monkeypatch):
     with engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE booking_equipment, bookings, availability_rules, resources, users RESTART IDENTITY CASCADE"
+                "TRUNCATE assistant_audit_logs, booking_equipment, bookings, availability_rules, resources, users RESTART IDENTITY CASCADE"
             )
         )
     with Session(engine) as session, session.begin():

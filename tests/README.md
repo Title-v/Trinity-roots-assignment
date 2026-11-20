@@ -52,7 +52,7 @@ Implementation: [test_guardrails.py](api/test_guardrails.py).
 | Case | Input or action | Expected result and reason |
 | --- | --- | --- |
 | GUARD-01 | Send a room request containing a synthetic Thai ID, phone, email and API key, including an ID followed by a phone with one separating space | Mask all four values before the model request while retaining the date, time and group size. The adjacent-number input prevents regression of the corrected masking boundary. |
-| GUARD-02 | Capture one mocked model request and response | Log the exact masked request and received response with matching request IDs in a private 0600 file. Exclude headers and pre-mask text. This checks the exercise's audit-log requirement. |
+| GUARD-02 | Capture one mocked model request and response | Log the exact masked request and received response with matching request IDs in a private 0600 file, and verify the database sink used on Vercel. Exclude headers and pre-mask text. This checks the exercise's audit-log requirement. |
 | GUARD-03 | Account A reaches its shared chat/alternatives quota while account B sends a request; then advance the clock | Limit A with 429 and Retry-After, allow B, and allow A again after expiry. This checks account isolation and the rolling time window. |
 
 ### Conflict suggestions — 3 scenarios

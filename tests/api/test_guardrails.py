@@ -3,8 +3,12 @@
 import json
 import stat
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 import assistant
 import assistant_privacy
+from models import AssistantAuditLog
 
 
 def test_guard_01_masks_all_sensitive_values_before_model_request(
@@ -26,7 +30,9 @@ def test_guard_01_masks_all_sensitive_values_before_model_request(
     assert all(detail in sent for detail in [day, "14:00", "16:00", "5 people"])
 
 
-def test_guard_02_exact_audit_bodies_are_correlated_and_private(owner, model_http):
+def test_guard_02_exact_audit_bodies_are_correlated_and_private(
+    owner, model_http, db, monkeypatch
+):
     original = "Find a room. Email: synthetic@example.com"
     model_http.reply("clarify_room_search", {"reason": "both"})
     response = owner.post(
@@ -43,6 +49,25 @@ def test_guard_02_exact_audit_bodies_are_correlated_and_private(owner, model_htt
     assert "synthetic@example.com" not in entries[0]["body"]
     assert "sk-test-not-a-real-key" not in path.read_text()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    # Production uses durable private database rows instead of a local JSONL file.
+    monkeypatch.setenv("ASSISTANT_AUDIT_BACKEND", "database")
+    model_http.reply("clarify_room_search", {"reason": "both"})
+    response = owner.post(
+        "/assistant/chat", json={"messages": [{"role": "user", "content": original}]}
+    )
+    assert response.status_code == 200
+    with Session(db) as session:
+        rows = session.scalars(
+            select(AssistantAuditLog).order_by(AssistantAuditLog.id)
+        ).all()
+        assert [row.event for row in rows] == ["request", "response"]
+        assert rows[0].request_id == rows[1].request_id
+        assert rows[0].body == model_http.requests[-1]
+        assert rows[1].body == model_http.responses[-1]
+        assert rows[1].status == 200
+        assert all(row.created_at is not None for row in rows)
+    assert len(path.read_text().splitlines()) == 2
 
 
 def test_guard_03_shared_quota_is_per_account_and_expires(

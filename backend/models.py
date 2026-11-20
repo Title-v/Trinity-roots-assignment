@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -123,3 +124,20 @@ class BookingEquipment(Base):
     resource_id: Mapped[int] = mapped_column(ForeignKey("resources.id"))
     time_ranges: Mapped[list[Range[datetime]]] = mapped_column(TSTZMULTIRANGE)
     status: Mapped[str] = mapped_column(String(16))
+
+
+# Durable model request/response logs for hosts without persistent local disk.
+class AssistantAuditLog(Base):
+    __tablename__ = "assistant_audit_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "event IN ('request', 'response')", name="ck_assistant_audit_event"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(32), index=True)
+    event: Mapped[str] = mapped_column(String(16))
+    body: Mapped[str] = mapped_column(Text)
+    status: Mapped[int | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

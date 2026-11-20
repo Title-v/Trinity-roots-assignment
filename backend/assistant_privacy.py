@@ -2,6 +2,7 @@ import json
 import os
 import stat
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import uuid4
 
 from httpx import Request, Response
@@ -9,8 +10,11 @@ from openai import DefaultHttpxClient
 from presidio_analyzer import Pattern, PatternRecognizer
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
+from pydantic_settings import BaseSettings
+from sqlalchemy.orm import Session
 
-from database import PROJECT_ROOT
+from database import PROJECT_ROOT, DatabaseSettings, get_engine
+from models import AssistantAuditLog
 
 PATTERNS = {
     # A following space may separate an ID from a phone number, rather than extend the ID.
@@ -53,11 +57,30 @@ def mask_sensitive(text: str) -> str:
 AUDIT_PATH = PROJECT_ROOT / ".assistant-audit.jsonl"
 
 
+class AuditSettings(BaseSettings):
+    model_config = DatabaseSettings.model_config
+    assistant_audit_backend: Literal["file", "database"] = "file"
+
+
 # Append the exact model payload to a private JSONL file with a request correlation ID.
 def audit_event(request_id: str, event: str, body: str, **metadata: int) -> None:
+    now = datetime.now(UTC)
+    if AuditSettings().assistant_audit_backend == "database":
+        # Keep the body verbatim, including response errors, in private backend storage.
+        with Session(get_engine()) as session, session.begin():
+            session.add(
+                AssistantAuditLog(
+                    request_id=request_id,
+                    event=event,
+                    body=body,
+                    status=metadata.get("status"),
+                    created_at=now,
+                )
+            )
+        return
     line = json.dumps(
         {
-            "time": datetime.now(UTC).isoformat(),
+            "time": now.isoformat(),
             "request_id": request_id,
             "event": event,
             "body": body,

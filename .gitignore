@@ -12,3 +12,8 @@ node_modules/
 .pytest_cache/
 tests/ui/screenshots/
 tests/ui/videos/
+
+# Vercel local project metadata and pulled settings
+.vercel/
+.vercel
+.env*

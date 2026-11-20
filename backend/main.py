@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -10,7 +12,10 @@ from database import get_engine
 from equipment import router as equipment_router
 from rooms import router as rooms_router
 
-app = FastAPI(title="Resource Booking API")
+app = FastAPI(
+    title="Resource Booking API",
+    root_path=os.getenv("API_ROOT_PATH", ""),
+)
 app.include_router(auth_router)
 app.include_router(assistant_router)
 app.include_router(availability_router)

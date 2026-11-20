@@ -48,7 +48,7 @@ Adding Laya for these same decisions would introduce another model integration a
 
 **Controlled actions:** The model is instructed to treat messages as untrusted and use booking tools. Pydantic validates tool arguments; FastAPI builds the replies and scopes booking lists to the signed-in account. Creating, editing, or cancelling a booking requires user confirmation, followed by backend checks for ownership, time rules, and availability. Alternative suggestions are also checked before display.
 
-**Audit logs:** `.assistant-audit.jsonl` in the project root stores the exact masked request and received response bodies, including tool calls and API errors. Entries contain a timestamp, `event`, `request_id`, and a JSON-string `body`. Pair requests and responses by `request_id`; a network failure may leave a request without a response. The file uses owner-only permissions (`0600`) and is Git-ignored. Headers and pre-mask text are not logged.
+**Audit logs:** `.assistant-audit.jsonl` in the project root stores the exact masked request and received response bodies, including tool calls and API errors. Entries contain a timestamp, `event`, `request_id`, and a JSON-string `body`. Pair requests and responses by `request_id`; a network failure may leave a request without a response. The local file uses owner-only permissions (`0600`) and is Git-ignored. Vercel uses the private `assistant_audit_logs` database table for durable storage. Headers and pre-mask text are not logged. See [deployment details](deployment.md#audit-logs).
 
 ### Guardrail trade-offs
 

@@ -45,6 +45,14 @@ erDiagram
         tstzmultirange time_ranges
         varchar status
     }
+    assistant_audit_logs {
+        int id PK
+        varchar request_id "correlation ID"
+        varchar event "request or response"
+        text body "exact model payload"
+        int status "nullable response status"
+        timestamptz created_at
+    }
     availability_rules {
         int id PK
         int resource_id FK
@@ -53,6 +61,8 @@ erDiagram
         time closes_at
     }
 ```
+
+`assistant_audit_logs` is an independent private log table, correlated by `request_id` rather than a booking foreign key. It is used on Vercel; local development defaults to the JSONL file.
 
 A user can own many bookings. Each booking reserves one room and can include multiple equipment units through `booking_equipment`. Both rooms and individual equipment units live in `resources`; the backend enforces their roles. Each child row belongs to exactly one referenced parent. The dotted relationships are non-identifying: child tables have their own primary keys.
 
