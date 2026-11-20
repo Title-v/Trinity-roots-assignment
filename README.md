@@ -12,19 +12,69 @@ Built with **React + TypeScript**, **FastAPI**, and **Neon PostgreSQL**. SQLAlch
 - AI proposals that require confirmation, plus **conflict suggestions** checked by the backend before display.
 - Sensitive-data masking, model request/response logs, and a normal booking form that works without the LLM.
 
-## Quick start
+## Prerequisites
 
-Use **Node.js 24.16.0**, **Python 3.12.16**, npm, uv, and a Neon PostgreSQL database. An OpenAI key is optional for the form and required for chat. See [full setup instructions](docs/setup.md) for pip installation, settings, ports, and startup behavior.
+Install these tools before installing the project dependencies:
 
-**1. Install dependencies** from the project root:
+| Tool | Version / installation | Needed for |
+| --- | --- | --- |
+| Node.js and npm | [Install Node.js 24](https://nodejs.org/en/download). Development uses **24.16.0**; npm comes with Node.js. | Frontend, development commands and Cypress |
+| uv | [Install uv](https://docs.astral.sh/uv/getting-started/installation/) | Python environment and dependency management |
+| Python | **3.12**, tested with **3.12.16**. The uv command below installs it. | FastAPI and pytest |
+| Docker | [Install Docker Desktop](https://docs.docker.com/desktop/) or [Docker Engine on Linux](https://docs.docker.com/engine/install/) | API tests only; not needed for UI-only tests |
+
+To run the app, also provide a Neon PostgreSQL database. An OpenAI API key is required for chat; the normal form works without it. Automated tests need neither Neon credentials nor an LLM key.
+
+## Install dependencies
+
+**1. Download or clone the repository**, then open a terminal in its root folder:
+
+```sh
+git clone https://github.com/Title-v/Trinity-roots-assignment.git
+cd Trinity-roots-assignment
+```
+
+If you already have the project, use that folder and skip cloning.
+
+**2. Install the JavaScript dependencies:**
 
 ```sh
 npm ci
 npm --prefix frontend ci
+```
+
+`npm ci` installs root tools such as concurrently, Cypress and TypeScript. The second command installs React, Vite and the frontend packages. Both use the committed lockfiles.
+
+**3. Install Python and the backend dependencies:**
+
+```sh
+uv python install 3.12.16
 uv sync --project backend --locked
 ```
 
-**2. Create `.env.local`** in the project root, using pooled and direct URLs from the same Neon branch and database. Keep their SSL parameters.
+This creates `backend/.venv` and installs FastAPI, SQLAlchemy, Psycopg, Alembic, the OpenAI SDK, Presidio and the development tools, including pytest, from `backend/uv.lock`. Virtual-environment activation is not required for the project's `uv run` commands.
+
+**Pip alternative for Python dependencies** (macOS/Linux, with Python 3.12 already installed):
+
+```sh
+python3.12 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r requirements.txt
+```
+
+Use this in place of `uv sync` if you prefer pip. It installs the same locked runtime and development dependencies into the same environment. The npm development and API-test commands still require uv.
+
+**4. Verify the test tools were installed:**
+
+```sh
+uv run --project backend --locked pytest --version
+npx --no-install cypress verify
+```
+
+Cypress downloads its browser runner during installation. See [test tool installation](docs/development.md#install-test-tools) if its binary is missing or your platform needs additional system packages.
+
+## Configure and run
+
+**1. Create `.env.local`** in the project root, using pooled and direct URLs from the same Neon branch and database. Keep their SSL parameters.
 
 ```dotenv
 DATABASE_URL=postgresql://USER:PASSWORD@POOLED_HOST/DB?sslmode=require
@@ -36,7 +86,7 @@ DATABASE_URL_UNPOOLED=postgresql://USER:PASSWORD@DIRECT_HOST/DB?sslmode=require
 
 Uncomment `OPENAI_API_KEY` to enable chat. A fixed `SESSION_SECRET` preserves login sessions across backend restarts. These local settings are ignored by Git.
 
-**3. Apply migrations and seed the catalog:** the database role must be able to enable `btree_gist`.
+**2. Apply migrations and seed the catalog:** the database role must be able to enable `btree_gist`.
 
 ```sh
 cd backend
@@ -46,7 +96,7 @@ uv run python seed_equipment.py
 cd ..
 ```
 
-**4. Start both servers with one command:**
+**3. Start both servers with one command:**
 
 ```sh
 npm run dev
@@ -68,7 +118,6 @@ This runs **21 pytest API/database cases and 4 Cypress UI cases**, without an LL
 
 To watch Cypress fill forms and click buttons, run `npm run test:ui:open` and select `e2e/booking.cy.ts`. The default `npm test` and `npm run test:ui` run without a visible browser window.
 
-Python runtime and development dependencies are also available in [requirements.txt](requirements.txt), exported from [backend/uv.lock](backend/uv.lock).
 
 ## Design decisions and trade-offs
 
