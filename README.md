@@ -56,13 +56,17 @@ Open the [app](http://127.0.0.1:5173), create an account, and sign in. [FastAPI 
 
 ## Tests
 
-After installing dependencies, start Docker and run:
+The setup commands install pytest and Cypress from the project lockfiles. Install Docker separately for API tests. Follow [test tool installation](docs/development.md#install-test-tools) for download links, verification, and troubleshooting.
+
+After installing dependencies, start Docker Desktop (or your Docker daemon), wait until `docker info` succeeds, and run:
 
 ```sh
 npm test
 ```
 
 This runs **21 pytest API/database cases and 4 Cypress UI cases**, without an LLM key or running app servers. API tests use real PostgreSQL migrations and separate connections to check concurrent bookings and rollback; model responses are mocked. Cypress checks UI behavior with stubbed API responses. These tests do not measure real model quality or production load. See [test cases](tests/README.md) and [testing details](docs/development.md#check-the-app).
+
+To watch Cypress fill forms and click buttons, run `npm run test:ui:open` and select `e2e/booking.cy.ts`. The default `npm test` and `npm run test:ui` run without a visible browser window.
 
 Python runtime and development dependencies are also available in [requirements.txt](requirements.txt), exported from [backend/uv.lock](backend/uv.lock).
 

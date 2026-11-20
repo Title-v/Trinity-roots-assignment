@@ -6,7 +6,9 @@
     "test": "npm run test:api && npm run test:ui",
     "test:api": "uv run --project backend --locked pytest -c tests/pytest.ini -q",
     "test:ui": "node tests/ui/run.mjs",
-    "lint:tests": "node frontend/node_modules/eslint/bin/eslint.js --config tests/ui/eslint.config.mjs tests/ui"
+    "lint:tests": "node frontend/node_modules/eslint/bin/eslint.js --config tests/ui/eslint.config.mjs tests/ui",
+    "test:ui:open": "node tests/ui/run.mjs --open",
+    "test:ui:headed": "node tests/ui/run.mjs --headed"
   },
   "dependencies": {
     "@neon/config": "^1.14.0",

@@ -2,6 +2,45 @@
 
 [Back to README](../README.md)
 
+## Install test tools
+
+Use Node.js **24.16.0** with npm, Python **3.12.16**, and [uv](https://docs.astral.sh/uv/getting-started/installation/), as in the [app setup guide](setup.md). You do not need a Neon database, an LLM key, or a Cypress Cloud account to run these tests.
+
+**1. Install and start Docker for the API tests.** On macOS, install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) for your Mac's chip, then open it and wait until the engine is running. On Linux, follow the [Docker Engine installation guide](https://docs.docker.com/engine/install/). Docker is not required for the UI-only suite, and PostgreSQL does not need a separate local installation.
+
+**2. Install the project's locked dependencies.** Run from the repository root:
+
+```sh
+npm ci
+npm --prefix frontend ci
+uv sync --project backend --locked
+```
+
+| Command | Test tools installed |
+| --- | --- |
+| `npm ci` | Cypress and the TypeScript test compiler from the root lockfile |
+| `npm --prefix frontend ci` | React, Vite and the packages used by the isolated UI server |
+| `uv sync --project backend --locked` | pytest, the API test clients and Python dependencies, including the dev group |
+
+The first Cypress installation downloads its browser runner. Linux also needs the system packages listed in the [Cypress installation guide](https://docs.cypress.io/app/get-started/install-cypress).
+
+**3. Verify that the tools are ready:**
+
+```sh
+uv run --project backend --locked pytest --version
+npx --no-install cypress verify
+docker info
+```
+
+If Cypress reports that its binary is missing, install the binary matching the already-installed package and verify again:
+
+```sh
+npx --no-install cypress install
+npx --no-install cypress verify
+```
+
+Docker Desktop can also be started with `docker desktop start`. Wait until `docker info` succeeds before running the API suite. The first API run downloads `postgres:17` and creates its own temporary database.
+
 ## Check the app
 
 After installing the project dependencies, start Docker and run both test suites from the project root:
@@ -40,6 +79,35 @@ curl -fsS http://127.0.0.1:5173/api/health/db
 ```
 
 A successful response is `{"status":"ok","database":"connected"}`. This checks connectivity, not the full booking workflow.
+
+### Watch UI tests in Cypress
+
+`npm test` and `npm run test:ui` use headless mode, so no browser window appears. Open the interactive runner to watch actions and inspect their command log:
+
+```sh
+npm run test:ui:open
+```
+
+Select `e2e/booking.cy.ts` in the Specs list. Cypress fills inputs, clicks buttons and checks the visible results automatically. The command log appears on the left and the application on the right. Keep the terminal and Cypress window open to rerun the spec. Closing Cypress also stops the isolated Vite server.
+
+For an automatic run with a visible browser that exits when finished:
+
+```sh
+npm run test:ui:headed
+```
+
+Both modes use the same four UI cases and stubbed API responses. They do not require Docker or a running FastAPI server.
+
+### Docker is unavailable
+
+API tests need a running Docker engine to create their isolated PostgreSQL database. If `docker info` fails, open Docker Desktop and wait for the engine to be ready (or start your Docker daemon on Linux). Docker Desktop also supports `docker desktop start` from the terminal.
+
+```sh
+docker info
+npm test
+```
+
+The API suite exits with one setup message and a nonzero status when Docker is unavailable. It does not switch to the application's database or report skipped cases as passing. `npm run test:ui` can run separately without Docker.
 
 ## Project structure
 

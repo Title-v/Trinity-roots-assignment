@@ -14,6 +14,8 @@ npm --prefix frontend ci
 uv sync --project backend --locked
 ```
 
+These commands also install pytest and Cypress. To run the API tests, install and start Docker separately; see [test tool installation](development.md#install-test-tools). UI-only tests do not require Docker or the database setup below.
+
 Python dependencies are declared in `backend/pyproject.toml` and pinned in `backend/uv.lock`. The root `requirements.txt` contains the same locked runtime and development dependencies, including pytest. If you use pip in an activated Python 3.12 environment, install them with:
 
 ```sh

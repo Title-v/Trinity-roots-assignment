@@ -66,8 +66,12 @@ def postgres_url():
     try:
         docker("info", "--format", "{{.ServerVersion}}", timeout=15)
     except (OSError, subprocess.SubprocessError):
-        pytest.fail(
-            "Start Docker before running API tests. No application database was used."
+        # Every API case needs this service. Report one setup error instead of repeating it per case.
+        pytest.exit(
+            "Docker is unavailable. Start Docker Desktop (or your Docker daemon), "
+            "verify it with 'docker info', then run 'npm run test:api' again. "
+            "No application database was used.",
+            returncode=2,
         )
     name = f"trinity-tests-{uuid4().hex[:12]}"
     password = uuid4().hex

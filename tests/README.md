@@ -1,6 +1,6 @@
 # Test cases
 
-Implemented: **21 pytest cases and 4 Cypress cases**. Each case ID below maps to one named test. Run both suites with `npm test` from the project root.
+Implemented: **21 pytest cases and 4 Cypress cases**. Each case ID below maps to one named test. Run both suites with `npm test` from the project root. See [test tool installation](../docs/development.md#install-test-tools) before the first run, or [open Cypress](../docs/development.md#watch-ui-tests-in-cypress) to watch the UI automation.
 
 | Framework | Responsibility | Test boundary |
 | --- | --- | --- |

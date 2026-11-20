@@ -24,12 +24,22 @@ try {
   if (!address || typeof address === 'string') throw new Error('UI test server has no TCP port')
   const baseUrl = `http://127.0.0.1:${address.port}`
   console.log(`Isolated UI test server: ${baseUrl} (no backend proxy)`)
-  const result = await cypress.run({ project, browser: 'electron', config: { baseUrl } })
-  if ('failures' in result) {
-    console.error(result.message)
-    process.exitCode = 1
+  if (process.argv.includes('--open')) {
+    console.log('Select e2e/booking.cy.ts in Cypress to watch the tests. Keep this terminal open.')
+    await cypress.open({ project, browser: 'electron', testingType: 'e2e', config: { baseUrl } })
   } else {
-    process.exitCode = result.totalFailed > 0 ? 1 : 0
+    const result = await cypress.run({
+      project,
+      browser: 'electron',
+      headed: process.argv.includes('--headed'),
+      config: { baseUrl },
+    })
+    if ('failures' in result) {
+      console.error(result.message)
+      process.exitCode = 1
+    } else {
+      process.exitCode = result.totalFailed > 0 ? 1 : 0
+    }
   }
 } finally {
   await server.close()
