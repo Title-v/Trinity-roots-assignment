@@ -13,7 +13,8 @@ from presidio_anonymizer.entities import OperatorConfig
 from database import PROJECT_ROOT
 
 PATTERNS = {
-    "THAI_ID": r"(?<!\d)\d(?:[ -]?\d){12}(?![ -]?\d)",
+    # A following space may separate an ID from a phone number, rather than extend the ID.
+    "THAI_ID": r"(?<!\d)\d(?:[ -]?\d){12}(?!\d)",
     "PHONE": (
         r"(?<![\d+])(?:0[689]\d|\+66[ -]?[689]\d)(?:[ .-]?\d){7}(?!\d)"
         r"|(?<![\d+])(?:0[2-57]|\+66[ -]?[2-57])(?:[ .-]?\d){7}(?!\d)"

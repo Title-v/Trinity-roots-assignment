@@ -7,3 +7,8 @@ node_modules/
 .neon
 
 .assistant-audit.jsonl
+
+# Local automated test output
+.pytest_cache/
+tests/ui/screenshots/
+tests/ui/videos/

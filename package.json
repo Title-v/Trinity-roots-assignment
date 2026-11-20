@@ -2,13 +2,19 @@
   "private": true,
   "scripts": {
     "dev": "concurrently --kill-others --names api,web \"uv run --project backend --locked python backend/dev.py\" \"npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort\"",
-    "build": "npm --prefix frontend run build"
+    "build": "npm --prefix frontend run build",
+    "test": "npm run test:api && npm run test:ui",
+    "test:api": "uv run --project backend --locked pytest -c tests/pytest.ini -q",
+    "test:ui": "node tests/ui/run.mjs",
+    "lint:tests": "node frontend/node_modules/eslint/bin/eslint.js --config tests/ui/eslint.config.mjs tests/ui"
   },
   "dependencies": {
     "@neon/config": "^1.14.0",
     "@neon/env": "^2.1.3"
   },
   "devDependencies": {
-    "concurrently": "10.0.7"
+    "concurrently": "10.0.7",
+    "cypress": "^16.3.0",
+    "typescript": "^6.0.3"
   }
 }
