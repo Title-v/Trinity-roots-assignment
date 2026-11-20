@@ -1,5 +1,7 @@
 # Trinity Roots Room Booking
 
+[Live app](https://trinity-roots-title-v.vercel.app) · [Live API docs](https://trinity-roots-title-v.vercel.app/api/docs)
+
 Find and reserve meeting rooms by date and group size, using a form or an AI assistant in Thai or English. View, change, and cancel your own reservations in **My bookings**.
 
 Built with **React + TypeScript**, **FastAPI**, and **Neon PostgreSQL**. SQLAlchemy defines the models, Psycopg connects to PostgreSQL, and Alembic manages migrations. The LLM key stays on the backend.

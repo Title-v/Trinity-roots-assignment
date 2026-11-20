@@ -2,6 +2,8 @@
 
 [Back to README](../README.md)
 
+Production: [trinity-roots-title-v.vercel.app](https://trinity-roots-title-v.vercel.app).
+
 This project uses **Vercel Services (beta)** to deploy the Vite frontend and FastAPI backend together. `vercel.json` routes `/api/*` to FastAPI and other requests to the frontend. The SPA rewrite supports direct links to `/booking` and `/my-bookings`.
 
 ## Runtime settings
